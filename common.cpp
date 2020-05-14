@@ -117,7 +117,8 @@ size_t ArgvQuote(char *in, char *out) {
 
 
 char *ArgvToCmd(int argc, char** argv) {
-  size_t len = 0, i;
+  size_t len = 0;
+  int i;
   char* buf, *ret;
 
   for (i = 0; i < argc; i++)

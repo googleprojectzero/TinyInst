@@ -64,7 +64,7 @@ DWORD Debugger::GetLoadedModules(HMODULE **modules) {
 // parses PE headers and gets the module entypoint
 void *Debugger::GetModuleEntrypoint(void *base_address) {
   unsigned char headers[4096];
-  size_t num_read = 0;
+  SIZE_T num_read = 0;
   if (!ReadProcessMemory(child_handle, base_address, headers, 4096, &num_read) || (num_read != 4096)) {
     FATAL("Error reading target memory\n");
   }
@@ -88,7 +88,7 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
 // parses PE headers and gets the module entypoint
 DWORD Debugger::GetImageSize(void *base_address) {
   unsigned char headers[4096];
-  size_t num_read = 0;
+  SIZE_T num_read = 0;
   if (!ReadProcessMemory(child_handle, base_address, headers, 4096, &num_read) || (num_read != 4096)) {
     FATAL("Error reading target memory\n");
   }
@@ -113,7 +113,7 @@ DWORD Debugger::GetImageSize(void *base_address) {
 // that can be accessed later when the breakpoint gets hit
 void Debugger::AddBreakpoint(void *address, int type, char *module_name, void *module_base) {
   Breakpoint *new_breakpoint = new Breakpoint;
-  size_t rwsize = 0;
+  SIZE_T rwsize = 0;
   if (!ReadProcessMemory(child_handle, address, &(new_breakpoint->original_opcode), 1, &rwsize) || (rwsize != 1)) {
     FATAL("Error reading target memory\n");
   }
@@ -193,7 +193,7 @@ char *Debugger::GetPersistenceOffset(HMODULE module) {
 
   // try the exported symbols next
   BYTE *modulebuf = (BYTE *)malloc(size_of_image);
-  size_t num_read;
+  SIZE_T num_read;
   if (!ReadProcessMemory(child_handle, base_of_dll, modulebuf, size_of_image, &num_read) || (num_read != size_of_image)) {
     FATAL("Error reading target memory\n");
   }
@@ -233,7 +233,7 @@ char *Debugger::GetPersistenceOffset(HMODULE module) {
 void Debugger::OnModuleLoaded(HMODULE module, char *module_name) {
   // printf("In on_module_loaded, name: %s, base: %p\n", module_name, module_info.lpBaseOfDll);
 
-  if (_stricmp(module_name, persist_module) == 0) {
+  if (persistence_mode && _stricmp(module_name, persist_module) == 0) {
     persistence_address = GetPersistenceOffset(module);
     if (!persistence_address) {
       FATAL("Error determining target method address\n");
@@ -241,6 +241,7 @@ void Debugger::OnModuleLoaded(HMODULE module, char *module_name) {
 
     AddBreakpoint(persistence_address, BREAKPOINT_PERSIST, NULL, 0);
   }
+
 }
 
 // called when a potentialy interesting module gets loaded
@@ -248,7 +249,7 @@ void Debugger::OnModuleUnloaded(HMODULE module) {
 }
 
 void Debugger::ReadStack(void *stack_addr, void **buffer, size_t numitems) {
-  size_t numrw = 0;
+  SIZE_T numrw = 0;
 #ifdef _WIN64
   if (wow64_target) {
     uint32_t *buf32 = (uint32_t *)malloc(numitems * child_ptr_size);
@@ -264,7 +265,7 @@ void Debugger::ReadStack(void *stack_addr, void **buffer, size_t numitems) {
 }
 
 void Debugger::WriteStack(void *stack_addr, void **buffer, size_t numitems) {
-  size_t numrw = 0;
+  SIZE_T numrw = 0;
 #ifdef _WIN64
   if (wow64_target) {
     uint32_t *buf32 = (uint32_t *)malloc(numitems * child_ptr_size);
@@ -285,7 +286,7 @@ void Debugger::OnPersistMethodReached(DWORD thread_id) {
 
   persist_target_reached = true;
 
-  size_t numrw = 0;
+  SIZE_T numrw = 0;
 
   CONTEXT lcContext;
   lcContext.ContextFlags = CONTEXT_ALL;
@@ -387,6 +388,11 @@ void Debugger::OnPersistMethodEnded(DWORD thread_id) {
   lcContext.Esp = (size_t)saved_sp;
 #endif
 
+  // restore return address as it might have been overwritten by instrumentation
+  SIZE_T numrw = 0;
+  size_t return_address = PERSIST_END_EXCEPTION;
+  WriteProcessMemory(child_handle, saved_sp, &return_address, child_ptr_size, &numrw);
+
   switch (calling_convention) {
 #ifdef _WIN64
   case CALLCONV_DEFAULT:
@@ -471,7 +477,7 @@ void Debugger::OnEntrypoint() {
 // called when the debugger hits a breakpoint
 int Debugger::HandleDebuggerBreakpoint(void *address, DWORD thread_id) {
   int ret = BREAKPOINT_UNKNOWN;
-  size_t rwsize = 0;
+  SIZE_T rwsize = 0;
 
   Breakpoint *breakpoint = NULL, *tmp_breakpoint;
   for (auto iter = breakpoints.begin(); iter != breakpoints.end(); iter++) {
@@ -582,7 +588,7 @@ int Debugger::DebugLoop()
         }
 
         case EXCEPTION_ACCESS_VIOLATION: {
-          if ((size_t)DebugEv->u.Exception.ExceptionRecord.ExceptionAddress == PERSIST_END_EXCEPTION) {
+          if (persistence_mode && ((size_t)DebugEv->u.Exception.ExceptionRecord.ExceptionAddress == PERSIST_END_EXCEPTION)) {
             OnPersistMethodEnded(DebugEv->dwThreadId);
             dbg_continue_status = DBG_CONTINUE;
             return DEBUGGER_PERSIST_END;
@@ -619,10 +625,17 @@ int Debugger::DebugLoop()
 
     case CREATE_PROCESS_DEBUG_EVENT: {
       OnProcessCreated(&DebugEv->u.CreateProcessInfo);
-      // add a brekpoint to the process entrypoint
-      void *entrypoint = GetModuleEntrypoint(DebugEv->u.CreateProcessInfo.lpBaseOfImage);
-      AddBreakpoint(entrypoint, BREAKPOINT_ENTRYPOINT, NULL, 0);
-      CloseHandle(DebugEv->u.CreateProcessInfo.hFile);
+      if (attach_mode) {
+        // assume entrypoint has been reached already
+        child_handle = DebugEv->u.CreateProcessInfo.hProcess;
+        child_thread_handle = DebugEv->u.CreateProcessInfo.hThread;
+        child_entrypoint_reached = true;
+      } else {
+        // add a brekpoint to the process entrypoint
+        void *entrypoint = GetModuleEntrypoint(DebugEv->u.CreateProcessInfo.lpBaseOfImage);
+        AddBreakpoint(entrypoint, BREAKPOINT_ENTRYPOINT, NULL, 0);
+        CloseHandle(DebugEv->u.CreateProcessInfo.hFile);
+      }
       break;
     }
 
@@ -717,6 +730,14 @@ void Debugger::WaitProcessExit()
 
 // starts the target process
 void Debugger::StartProcess(char *cmd) {
+  if (attach_mode) {
+    if (!DebugActiveProcess(attach_pid)) {
+      FATAL("Could not attach to the process. Make sure the process exists and you have permissions to debug it.\n");
+    }
+    return;
+  }
+
+
   STARTUPINFOA si;
   PROCESS_INFORMATION pi;
   HANDLE hJob = NULL;
@@ -807,8 +828,9 @@ void Debugger::StartProcess(char *cmd) {
   if (!IsWow64Process(GetCurrentProcess(), &wow64current)) {
     FATAL("IsWow64Process failed");
   }
-  if (wow64current != wow64remote) {
-    FATAL("Please use 64-bit build on 64-bit targets and 32-bit build on 32-bit targets\n");
+  // Will probably fail before we reach this, but oh well
+  if (sizeof(void*) < child_ptr_size) {
+    FATAL("64-bit build is needed to run 64-bit targets\n");
   }
 }
 
@@ -836,7 +858,44 @@ void Debugger::KillProcess() {
   DeleteBreakpoints();
 }
 
+int Debugger::Attach(unsigned int pid, uint32_t timeout) {
+  attach_mode = true;
+  attach_pid = pid;
+  return Run(NULL, timeout);
+}
+
 int Debugger::Run(char *cmd, uint32_t timeout) {
+  if (persistence_mode) {
+    return RunPersistent(cmd, timeout);
+  }
+
+  int debugger_status;
+  int ret;
+
+  StartProcess(cmd);
+
+  dbg_timeout_time = GetCurTime() + timeout;
+  debugger_status = DebugLoop();
+
+  if (debugger_status == DEBUGGER_PROCESS_EXIT) {
+    CloseHandle(child_handle);
+    CloseHandle(child_thread_handle);
+    child_handle = NULL;
+    child_thread_handle = NULL;
+    ret = FAULT_NONE;
+  } else if (debugger_status == DEBUGGER_HANGED) {
+    KillProcess();
+    ret = FAULT_TMOUT;
+  } else if (debugger_status == DEBUGGER_CRASHED) {
+    KillProcess();
+    ret = FAULT_CRASH;
+  }
+
+  return ret;
+}
+
+
+int Debugger::RunPersistent(char *cmd, uint32_t timeout) {
   int debugger_status;
   int ret;
 
@@ -895,8 +954,6 @@ int Debugger::Run(char *cmd, uint32_t timeout) {
     ret = FAULT_NONE;
   }
 
-  // TODO: examine coverage
-
   persist_iterations_current++;
   if (persist_iterations_current == persist_iterations && child_handle != NULL) {
     KillProcess();
@@ -907,6 +964,8 @@ int Debugger::Run(char *cmd, uint32_t timeout) {
 
 
 void Debugger::Init(int argc, char **argv) {
+  attach_mode = false;
+
   child_handle = NULL;
   child_thread_handle = NULL;
 
@@ -949,8 +1008,14 @@ void Debugger::Init(int argc, char **argv) {
       FATAL("Unknown calling convention");
   }
 
-  if (persist_module[0] && (persist_offset == 0) && (persist_method[0] == 0)) {
-    FATAL("If persist_module is specified, then either persist_offset or persist_method must be as well");
+  // check if we are running in persistence mode
+  if (persist_module[0] || persist_offset || persist_method[0]) {
+    persistence_mode = true;
+    if ((persist_module[0] == 0) || ((persist_offset == 0) && (persist_method[0] == 0))) {
+      FATAL("In persistence mode, persist_module and either persist_offset or persist_method must be specified");
+    }
+  } else {
+    persistence_mode = false;
   }
 
   if (persist_num_args) {

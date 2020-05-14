@@ -8,6 +8,7 @@ public:
 
   virtual void Init(int argc, char **argv);
   int Run(char *cmd, uint32_t timeout);
+  int Attach(unsigned int pid, uint32_t timeout);
 
 protected:
 
@@ -48,6 +49,9 @@ private:
   DWORD GetLoadedModules(HMODULE **modules);
   void DeleteBreakpoints();
 
+  int RunPersistent(char *cmd, uint32_t timeout);
+
+
 protected:
 
   HANDLE child_handle, child_thread_handle;
@@ -69,6 +73,12 @@ private:
   int wow64_target = 0;
 
   // persistence related
+protected:
+  bool persistence_mode;
+  bool attach_mode;
+  unsigned int attach_pid;
+
+private:
   int persist_num_args;
   int persist_iterations;
   uint64_t persist_offset;

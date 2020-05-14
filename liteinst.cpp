@@ -20,10 +20,12 @@ extern "C" {
 
 unsigned char JMP[] = { 0xe9, 0x00, 0x00, 0x00, 0x00 };
 unsigned char CALL[] = { 0xe8, 0x00, 0x00, 0x00, 0x00 };
+
+// warning, this is rip-relative on x64 but absolute on 32-bit
 unsigned char JMP_MEM[] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
 
 unsigned char LEARSP[] = { 0x48, 0x8d, 0xa4, 0x24, 0x00, 0x00, 0x00, 0x00 };
-unsigned char LEAESP[] = { 0x67, 0x8d, 0xa4, 0x24, 0x00, 0x00, 0x00, 0x00 };
+unsigned char LEAESP[] = { 0x8D, 0xA4, 0x24, 0x00, 0x00, 0x00, 0x00 };
 unsigned char PUSH_FAB[] = { 0x9c, 0x50, 0x53 };
 unsigned char PUSH_FA[] = { 0x9c, 0x50 };
 unsigned char PUSH_F[] = { 0x9c };
@@ -37,7 +39,7 @@ unsigned char AND_EBX[] = { 0x81, 0xe3, 0x00, 0x00, 0x00, 0x00 };
 unsigned char MOV_RBXRAX[] = { 0x48, 0x89, 0xC3 };
 unsigned char MOV_EBXEAX[] = { 0x89, 0xC3 };
 unsigned char ADD_RBXRIPRELATIVE[] = { 0x48, 0x03, 0x1D, 0x00, 0x00, 0x00, 0x00 };
-unsigned char ADD_EBXRIPRELATIVE[] = { 0x48, 0x03, 0x1D, 0x00, 0x00, 0x00, 0x00 };
+unsigned char ADD_EBXRIPRELATIVE[] = { 0x03, 0x1D, 0x00, 0x00, 0x00, 0x00 };
 unsigned char JMP_B[] = { 0xFF, 0x23 };
 unsigned char CMP_RAX[] = { 0x48, 0x3B, 0x05, 0x00, 0x00, 0x00, 0x00 };
 unsigned char CMP_EAX[] = { 0x3B, 0x05, 0x00, 0x00, 0x00, 0x00 };
@@ -51,6 +53,64 @@ unsigned char MOV_EAX_ESPMEM[] = { 0x8B, 0x84, 0x24, 0xAA, 0xAA, 0xAA, 0x0A };
 
 unsigned char MOV_RSPMEM_RAX[] = { 0x48, 0x89, 0x84, 0x24, 0xAA, 0xAA, 0xAA, 0x0A };
 unsigned char MOV_ESPMEM_EAX[] = { 0x89, 0x84, 0x24, 0xAA, 0xAA, 0xAA, 0x0A };
+
+// mov byte ptr [0], 0
+unsigned char CRASH_64[] = { 0xC6, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00 };
+unsigned char CRASH_32[] = { 0xC6, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+void LiteInst::InvalidateCrossModuleLink(CrossModuleLink *link) {
+  ModuleInfo *module1 = link->module1;
+  size_t original_value = ReadPointer(module1, link->offset1);
+  WritePointerAtOffset(module1, original_value, link->offset1 + child_ptr_size);
+  CommitCode(module1, link->offset1 + child_ptr_size, child_ptr_size);
+}
+
+void LiteInst::FixCrossModuleLink(CrossModuleLink *link) {
+  ModuleInfo *module1 = link->module1;
+  ModuleInfo *module2 = link->module2;
+
+  size_t original_value = (size_t)module2->base + link->offset2;
+  size_t translated_value = GetTranslatedAddress(module2, original_value);
+
+  WritePointerAtOffset(module1, original_value, link->offset1);
+  WritePointerAtOffset(module1, translated_value, link->offset1 + child_ptr_size);
+
+  CommitCode(module1, link->offset1, 2 * child_ptr_size);
+}
+
+void LiteInst::InvalidateCrossModuleLinks(ModuleInfo *module) {
+  for (auto iter = cross_module_links.begin(); iter != cross_module_links.end(); iter++) {
+    if (iter->module2 == module) {
+      InvalidateCrossModuleLink(&(*iter));
+    }
+  }
+}
+
+void LiteInst::InvalidateCrossModuleLinks() {
+  for (auto iter = cross_module_links.begin(); iter != cross_module_links.end(); iter++) {
+    InvalidateCrossModuleLink(&(*iter));
+  }
+}
+
+void LiteInst::FixCrossModuleLinks(ModuleInfo *module) {
+  for (auto iter = cross_module_links.begin(); iter != cross_module_links.end(); iter++) {
+    if (iter->module2 == module) {
+      FixCrossModuleLink(&(*iter));
+    }
+  }
+}
+
+void LiteInst::ClearCrossModuleLinks(ModuleInfo *module) {
+  auto iter = cross_module_links.begin();
+  while (iter != cross_module_links.end()) {
+    if (iter->module1 == module) {
+      iter = cross_module_links.erase(iter);
+    } else {
+      iter++;
+    }
+  }
+}
+
 
 // Global jumptable for indirect jumps/calls.
 // This is an array of size JUMPTABLE_SIZE where each entry initially
@@ -85,7 +145,9 @@ void LiteInst::InitGlobalJumptable(ModuleInfo *module) {
 
 // Writes the modified code from the debugger process into the target process
 void LiteInst::CommitCode(ModuleInfo *module, size_t start_offset, size_t size) {
-  size_t size_written;
+  if (!module->instrumented_code_remote) return;
+
+  SIZE_T size_written;
   if (!WriteProcessMemory(
     child_handle, 
     module->instrumented_code_remote + start_offset, 
@@ -133,6 +195,29 @@ void LiteInst::WritePointer(ModuleInfo *module, size_t value) {
   module->instrumented_code_allocated += child_ptr_size;
 }
 
+void LiteInst::WritePointerAtOffset(ModuleInfo *module, size_t value, size_t offset) {
+  if (offset + child_ptr_size > module->instrumented_code_size) {
+    FATAL("Insufficient memory allocated for instrumented code");
+  }
+
+  if (child_ptr_size == 8) {
+    *(uint64_t *)(module->instrumented_code_local + offset) = (uint64_t)value;
+  } else {
+    *(uint32_t *)(module->instrumented_code_local + offset) = (uint32_t)value;
+  }
+
+  if (offset + child_ptr_size > module->instrumented_code_allocated) {
+    module->instrumented_code_allocated += offset + child_ptr_size;
+  }
+}
+size_t LiteInst::ReadPointer(ModuleInfo *module, size_t offset) {
+  if (child_ptr_size == 8) {
+    return (size_t)(*(uint64_t *)(module->instrumented_code_local + offset));
+  } else {
+    return (size_t)(*(uint32_t *)(module->instrumented_code_local + offset));
+  }
+}
+
 // fixes an offset in the jump instruction (at offset jmp_offset in the instrumented code)
 // to jump to the given basic block (at offset bb in the original code)
 // in case the basic block hasn't been instrumented yet, queues it for instrumentation
@@ -160,7 +245,7 @@ void LiteInst::OffsetStack(ModuleInfo *module, int32_t offset) {
     WriteCode(module, LEAESP, sizeof(LEAESP));
   }
 
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = offset;
+  FixDisp4(module, offset);
 }
 
 void LiteInst::ReadStack(ModuleInfo *module, int32_t offset) {
@@ -169,7 +254,7 @@ void LiteInst::ReadStack(ModuleInfo *module, int32_t offset) {
   } else {
     WriteCode(module, MOV_EAX_ESPMEM, sizeof(MOV_EAX_ESPMEM));
   }
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = offset;
+  FixDisp4(module, offset);
 }
 
 void LiteInst::WriteStack(ModuleInfo *module, int32_t offset) {
@@ -178,7 +263,7 @@ void LiteInst::WriteStack(ModuleInfo *module, int32_t offset) {
   } else {
     WriteCode(module, MOV_ESPMEM_EAX, sizeof(MOV_ESPMEM_EAX));
   }
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = offset;
+  FixDisp4(module, offset);
 }
 
 
@@ -186,7 +271,7 @@ void LiteInst::WriteStack(ModuleInfo *module, int32_t offset) {
 // converts an indirect jump/call into a MOV instruction
 // which moves the target of the indirect call into the RAX/EAX reguster
 // and writes this instruction into the code buffer
-void LiteInst::MovIndirectTarget(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t original_address) {
+void LiteInst::MovIndirectTarget(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t original_address, int32_t stack_offset) {
   size_t mem_address = 0;
   bool rip_relative = IsRipRelative(module, xedd, original_address, &mem_address);
 
@@ -220,13 +305,23 @@ void LiteInst::MovIndirectTarget(ModuleInfo *module, xed_decoded_inst_t *xedd, s
 
   if (operand_name == XED_OPERAND_MEM0) {
     xed_encoder_request_set_mem0(&mov);
-    xed_encoder_request_set_base0(&mov, xed_decoded_inst_get_base_reg(xedd, 0));
+    xed_reg_enum_t base_reg = xed_decoded_inst_get_base_reg(xedd, 0);
+    xed_encoder_request_set_base0(&mov, base_reg);
     xed_encoder_request_set_seg0(&mov, xed_decoded_inst_get_seg_reg(xedd, 0));
     xed_encoder_request_set_index(&mov, xed_decoded_inst_get_index_reg(xedd, 0));
     xed_encoder_request_set_scale(&mov, xed_decoded_inst_get_scale(xedd, 0));
-    xed_encoder_request_set_memory_displacement(&mov,
-      xed_decoded_inst_get_memory_displacement(xedd, 0),
-      xed_decoded_inst_get_memory_displacement_width(xedd, 0));
+    // in an unlikely case where base is rsp, disp needs fixing
+    // this is because we pushed stuff on the stack
+    if ((base_reg == XED_REG_SP) || (base_reg == XED_REG_ESP) || (base_reg == XED_REG_RSP)) {
+      // printf("base = sp\n");
+      int64_t disp = xed_decoded_inst_get_memory_displacement(xedd, 0) + stack_offset;
+      // always use disp width 4 in this case
+      xed_encoder_request_set_memory_displacement(&mov, disp, 4);
+    } else {
+      xed_encoder_request_set_memory_displacement(&mov,
+        xed_decoded_inst_get_memory_displacement(xedd, 0),
+        xed_decoded_inst_get_memory_displacement_width(xedd, 0));
+    }
     xed_encoder_request_set_memory_operand_length(&mov,
       xed_decoded_inst_get_memory_operand_length(xedd, 0));
     xed_encoder_request_set_operand_order(&mov, 1, XED_OPERAND_MEM0);
@@ -263,9 +358,12 @@ void LiteInst::MovIndirectTarget(ModuleInfo *module, xed_decoded_inst_t *xedd, s
 }
 
 bool LiteInst::HandleBreakpoint(void *address, DWORD thread_id) {
+  ModuleInfo *module = GetModuleFromInstrumented((char *)address);
+  if (!module) return false;
+
   if (trace_basic_blocks) {
-    auto iter = tracepoints.find((size_t)address);
-    if (iter != tracepoints.end()) {
+    auto iter = module->tracepoints.find((size_t)address);
+    if (iter != module->tracepoints.end()) {
 
       printf("TRACE: Executing basic block, original at %p, instrumented at %p\n", (void *)iter->second, (void *)iter->first);
 
@@ -276,6 +374,13 @@ bool LiteInst::HandleBreakpoint(void *address, DWORD thread_id) {
   }
 
   if (HandleIndirectJMPBreakpoint(address, thread_id)) return true;
+
+  if (module->invalid_instructions.find((size_t)address) != module->invalid_instructions.end()) {
+    WARN("Attempting to execute an instruction LiteInst couldn't translate");
+    WARN("This could be either due to a bug in the target or the bug/incompatibility in LiteInst");
+    WARN("The target will crash now");
+    return true;
+  }
 
   return false;
 }
@@ -335,7 +440,7 @@ bool LiteInst::HandleIndirectJMPBreakpoint(void *address, DWORD thread_id) {
 
   // printf("Adding jumptable entry, %p -> %p\n", (void *)original_address, (void *)translated_address);
 
-  size_t entry_offset = AddTranslatedJump(module, original_address, translated_address, list_head_offset, global_indirect);
+  size_t entry_offset = AddTranslatedJump(module, target_module, original_address, translated_address, list_head_offset, global_indirect);
 
   // redirect execution to just created entry which should handle it immediately
 #ifdef _WIN64
@@ -353,14 +458,14 @@ bool LiteInst::HandleIndirectJMPBreakpoint(void *address, DWORD thread_id) {
 
 // adds another observed original_target -> actual_target pair
 // to the golbal jumptable at the appropriate location
-size_t LiteInst::AddTranslatedJump(ModuleInfo *module, size_t original_target, size_t actual_target, size_t list_head_offset, bool global_indirect) {
+size_t LiteInst::AddTranslatedJump(ModuleInfo *module, ModuleInfo *target_module, size_t original_target, size_t actual_target, size_t list_head_offset, bool global_indirect) {
   size_t entry_offset = module->instrumented_code_allocated;
 
   size_t previous;
   size_t previous_offset;
 
   if (child_ptr_size == 8) {
-    previous = *(uint64_t *)(module->instrumented_code_local + list_head_offset);
+    previous = (size_t)(*(uint64_t *)(module->instrumented_code_local + list_head_offset));
   }
   else {
     previous = *(uint32_t *)(module->instrumented_code_local + list_head_offset);
@@ -374,14 +479,12 @@ size_t LiteInst::AddTranslatedJump(ModuleInfo *module, size_t original_target, s
   }
   size_t cmp_offset = module->instrumented_code_allocated;
 
-  // *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = sizeof(JE) + sizeof(JMP) + sizeof()
-
   WriteCode(module, JE, sizeof(JE));
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = sizeof(JMP);
+  FixDisp4(module, sizeof(JMP));
 
   WriteCode(module, JMP, sizeof(JMP));
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) =
-    (int32_t)((int64_t)previous_offset - (int64_t)module->instrumented_code_allocated);
+  FixDisp4(module, (int32_t)((int64_t)previous_offset - (int64_t)module->instrumented_code_allocated));
+
 
   if (global_indirect) {
     WriteCode(module, POP_BAF, sizeof(POP_BAF));
@@ -394,8 +497,24 @@ size_t LiteInst::AddTranslatedJump(ModuleInfo *module, size_t original_target, s
   }
 
   WriteCode(module, JMP_MEM, sizeof(JMP_MEM));
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = (int32_t)child_ptr_size;
-  *(int32_t *)(module->instrumented_code_local + cmp_offset - 4) = (int32_t)((int64_t)module->instrumented_code_allocated - (int64_t)cmp_offset);
+
+  if (child_ptr_size == 8) {
+    FixDisp4(module, (int32_t)child_ptr_size);
+    *(int32_t *)(module->instrumented_code_local + cmp_offset - 4) = (int32_t)((int64_t)module->instrumented_code_allocated - (int64_t)cmp_offset);
+  } else {
+    FixDisp4(module, (int32_t)(GetCurrentInstrumentedAddress(module) + child_ptr_size));
+    *(int32_t *)(module->instrumented_code_local + cmp_offset - 4) = (int32_t)GetCurrentInstrumentedAddress(module);
+  }
+
+  if (target_module && (module != target_module)) {
+    CrossModuleLink link;
+    link.module1 = module;
+    link.module2 = target_module;
+    link.offset1 = module->instrumented_code_allocated;
+    link.offset2 = original_target - (size_t)target_module->base;
+    // printf("Cross module link to %p\n", (void *)original_target);
+    cross_module_links.push_back(link);
+  }
 
   WritePointer(module, original_target);
   WritePointer(module, actual_target);
@@ -414,6 +533,19 @@ size_t LiteInst::AddTranslatedJump(ModuleInfo *module, size_t original_target, s
 }
 
 LiteInst::IndirectInstrumentation LiteInst::ShouldInstrumentIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address) {
+  xed_category_enum_t category;
+  category = xed_decoded_inst_get_category(xedd);
+
+  xed_iclass_enum_t iclass;
+  iclass = xed_decoded_inst_get_iclass(xedd);
+ 
+  if (category == XED_CATEGORY_RET) {
+    if (!patch_return_addresses) return II_NONE;
+    if (iclass != XED_ICLASS_RET_NEAR) return II_NONE;
+  } else {
+    if ((iclass != XED_ICLASS_JMP) && (iclass != XED_ICLASS_CALL_NEAR)) return II_NONE;
+  }
+
   if (indirect_instrumentation_mode != II_AUTO) {
     return indirect_instrumentation_mode;
   } else {
@@ -460,6 +592,37 @@ LiteInst::IndirectInstrumentation LiteInst::ShouldInstrumentIndirect(ModuleInfo 
   return II_GLOBAL; */
 }
 
+void LiteInst::InstrumentRet(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address, IndirectInstrumentation mode) {
+  // lots of moving around, but the problem is
+  // we need to store context in the same place
+  // where the return address is
+
+  // store rax to a safe offset
+  int32_t ax_offset = -sp_offset - 2 * child_ptr_size;
+  WriteStack(module, ax_offset);
+  // copy return address to a safe offset
+  int32_t ret_offset = ax_offset - child_ptr_size;
+  ReadStack(module, 0);
+  WriteStack(module, ret_offset);
+  // get ret immediate
+  int32_t imm = (int32_t)xed_decoded_inst_get_unsigned_immediate(xedd);
+  // align the stack
+  int32_t ret_pop = (int32_t)child_ptr_size + imm - sp_offset;
+  OffsetStack(module, ret_pop); //pop
+  ax_offset -= ret_pop;
+  ret_offset -= ret_pop;
+  // write data to stack
+  WriteCode(module, PUSH_F, sizeof(PUSH_F));
+  ax_offset += child_ptr_size;
+  ret_offset += child_ptr_size;
+  ReadStack(module, ax_offset);
+  WriteCode(module, PUSH_A, sizeof(PUSH_A));
+  ax_offset += child_ptr_size;
+  ret_offset += child_ptr_size;
+  ReadStack(module, ret_offset);
+  InstrumentIndirect(module, xedd, instruction_address, mode);
+}
+
 void LiteInst::InstrumentIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address, IndirectInstrumentation mode) {
   if (mode == II_GLOBAL) {
     InstrumentGlobalIndirect(module, xedd, instruction_address);
@@ -480,7 +643,7 @@ void LiteInst::InstrumentGlobalIndirect(ModuleInfo *module, xed_decoded_inst_t *
 
     WriteCode(module, PUSH_FAB, sizeof(PUSH_FAB));
 
-    MovIndirectTarget(module, xedd, instruction_address);
+    MovIndirectTarget(module, xedd, instruction_address, sp_offset + 3 * child_ptr_size);
   } else {
     // stack already set up, just save B
     WriteCode(module, PUSH_B, sizeof(PUSH_B));
@@ -493,16 +656,15 @@ void LiteInst::InstrumentGlobalIndirect(ModuleInfo *module, xed_decoded_inst_t *
     WriteCode(module, MOV_EBXEAX, sizeof(MOV_EBXEAX));
     WriteCode(module, AND_EBX, sizeof(AND_EBX));
   }
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4)
-    = (int32_t)((JUMPTABLE_SIZE - 1) * child_ptr_size);
+  FixDisp4(module, (int32_t)((JUMPTABLE_SIZE - 1) * child_ptr_size));
 
   if (child_ptr_size == 8) {
     WriteCode(module, ADD_RBXRIPRELATIVE, sizeof(ADD_RBXRIPRELATIVE));
+    FixDisp4(module, (int32_t)((int64_t)module->jumptable_address_offset - (int64_t)module->instrumented_code_allocated));
   } else {
     WriteCode(module, ADD_EBXRIPRELATIVE, sizeof(ADD_EBXRIPRELATIVE));
+    FixDisp4(module, (int32_t)((size_t)module->instrumented_code_remote + module->jumptable_address_offset));
   }
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4)
-    = (int32_t)((int64_t)module->jumptable_address_offset - (int64_t)module->instrumented_code_allocated);
 
   WriteCode(module, JMP_B, sizeof(JMP_B));
 }
@@ -516,15 +678,21 @@ void LiteInst::InstrumentLocalIndirect(ModuleInfo *module, xed_decoded_inst_t *x
 
     WriteCode(module, PUSH_FA, sizeof(PUSH_FA));
 
-    MovIndirectTarget(module, xedd, instruction_address);
+    MovIndirectTarget(module, xedd, instruction_address, sp_offset + 2 * child_ptr_size);
   } else {
     // stack already set up
   }
 
   WriteCode(module, JMP_MEM, sizeof(JMP_MEM));
-  *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = 1;
 
-  size_t breakpoint_address = (size_t)(module->instrumented_code_remote + module->instrumented_code_allocated);
+  size_t breakpoint_address = GetCurrentInstrumentedAddress(module);
+
+  if (child_ptr_size == 8) {
+    FixDisp4(module, 1);
+  } else {
+    FixDisp4(module, (int32_t)(breakpoint_address + 1));
+  }
+
   unsigned char breakpoint = 0xCC;
   WriteCode(module, &breakpoint, 1);
   module->br_indirect_newtarget_list[breakpoint_address] = module->instrumented_code_allocated;
@@ -579,7 +747,7 @@ bool LiteInst::IsRipRelative(ModuleInfo *module, xed_decoded_inst_t *xedd, size_
   if (!rip_relative) return false;
 
   size_t instruction_size = xed_decoded_inst_get_length(xedd);
-  *mem_address = instruction_address + instruction_size + disp;
+  *mem_address = (size_t)(instruction_address + instruction_size + disp);
 
   return rip_relative;
 }
@@ -653,36 +821,35 @@ void LiteInst::FixInstructionAndOutput(ModuleInfo *module, xed_decoded_inst_t *x
   module->instrumented_code_allocated += olen;
 }
   
-
-bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *> *queue, list<pair<uint32_t, uint32_t>> *offset_fixes) {
-  AddressRange *range;
-
-  // printf("processing basic block %p, instrumented code size: %lld\n", address, module->instrumented_code_allocated);
-
-  /*if ((size_t)address == 0x00007FFA8B4558D5) {
-    bool test = true;
-  }*/
-
-  for (auto iter = module->executable_ranges.begin(); iter != module->executable_ranges.end(); iter++) {
-    AddressRange *cur_range = &(*iter);
-    if (((size_t)address >= cur_range->from) && ((size_t)address < cur_range->to)) {
-      range = cur_range;
-      break;
-    }
+void LiteInst::InvalidInstruction(ModuleInfo *module) {
+  unsigned char breakpoint = 0xCC;
+  size_t breakpoint_address = (size_t)module->instrumented_code_remote + module->instrumented_code_allocated;
+  WriteCode(module, &breakpoint, 1);
+  module->invalid_instructions.insert(breakpoint_address);
+  if (child_ptr_size == 8) {
+    WriteCode(module, CRASH_64, sizeof(CRASH_64));
+  } else {
+    WriteCode(module, CRASH_32, sizeof(CRASH_32));
   }
+}
 
+void LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *> *queue, list<pair<uint32_t, uint32_t>> *offset_fixes) {
+  uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->base));
+  uint32_t translated_offset = (uint32_t)module->instrumented_code_allocated;
+
+  module->basic_blocks.insert({ original_offset, translated_offset });
+
+  AddressRange *range = GetRegion(module, (size_t)address);
   if (!range) {
-    FATAL("Address %p not found in any executable sections\n", address);
+    // just insert a jump to address
+    WriteCode(module, JMP_MEM, sizeof(JMP_MEM));
+    WritePointer(module, (size_t)address);
+    return;
   }
 
   uint32_t range_offset = (uint32_t)((size_t)address - (size_t)range->from);
   size_t code_size = (uint32_t)((size_t)range->to - (size_t)address);
   char *code_ptr = range->data + range_offset;
-
-  uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->base));
-  uint32_t translated_offset = (uint32_t)module->instrumented_code_allocated;
-
-  char *translated_code = NULL;
 
   size_t offset = 0, last_offset = 0;
 
@@ -694,14 +861,13 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
   dstate.stack_addr_width = (xed_address_width_enum_t)child_ptr_size;
 
   xed_category_enum_t category;
-
   bool bbend = false;
 
   if (trace_basic_blocks) {
     unsigned char breakpoint = 0xCC;
     size_t breakpoint_address = (size_t)module->instrumented_code_remote + module->instrumented_code_allocated;
     WriteCode(module, &breakpoint, 1);
-    tracepoints[breakpoint_address] = (size_t)address;
+    module->tracepoints[breakpoint_address] = (size_t)address;
   }
 
   // write pre-bb instrumentation
@@ -734,58 +900,18 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
   }
 
   if (!bbend) {
-    // TODO
-    FATAL("Decoder failed without finding the bb end");
+    WARN("Could not find end of bb at %p.\n", address);
+    InvalidInstruction(module);
+    return;
   }
 
   if (category == XED_CATEGORY_RET) {
 
-    bool should_patch_ret = patch_return_addresses;
+    IndirectInstrumentation ii_mode = ShouldInstrumentIndirect(module, &xedd, (size_t)address + last_offset);
 
-    if (should_patch_ret) {
-      xed_iclass_enum_t iclass = xed_decoded_inst_get_iclass(&xedd);
-      if (iclass != XED_ICLASS_RET_NEAR) {
-        should_patch_ret = false;
-      }
-    }
-
-    if (should_patch_ret) {
-      IndirectInstrumentation ii_mode = ShouldInstrumentIndirect(module, &xedd, (size_t)address + last_offset);
-      if (ii_mode != II_NONE) {
-        // lots of moving around, but the problem is
-        // we need to store context in the same place
-        // where the return address is
-
-        // store rax to a safe offset
-        int32_t ax_offset = -sp_offset - 2 * child_ptr_size;
-        WriteStack(module, ax_offset);
-        // copy return address to a safe offset
-        int32_t ret_offset = ax_offset - child_ptr_size;
-        ReadStack(module, 0);
-        WriteStack(module, ret_offset);
-        // get ret immediate
-        int32_t imm = (int32_t)xed_decoded_inst_get_unsigned_immediate(&xedd);
-        // align the stack
-        int32_t ret_pop = (int32_t)child_ptr_size + imm - sp_offset;
-        OffsetStack(module, ret_pop); //pop
-        ax_offset -= ret_pop;
-        ret_offset -= ret_pop;
-        // write data to stack
-        WriteCode(module, PUSH_F, sizeof(PUSH_F));
-        ax_offset += child_ptr_size;
-        ret_offset += child_ptr_size;
-        ReadStack(module, ax_offset);
-        WriteCode(module, PUSH_A, sizeof(PUSH_A));
-        ax_offset += child_ptr_size;
-        ret_offset += child_ptr_size;
-        ReadStack(module, ret_offset);
-        InstrumentIndirect(module, &xedd, (size_t)address + last_offset, ii_mode);
-      } else {
-        // just output returns normally
-        FixInstructionAndOutput(module, &xedd, (unsigned char *)(code_ptr + last_offset), (unsigned char *)(address + last_offset));
-      }
+    if (ii_mode != II_NONE) {
+      InstrumentRet(module, &xedd, (size_t)address + last_offset, ii_mode);
     } else {
-      // just output returns normally
       FixInstructionAndOutput(module, &xedd, (unsigned char *)(code_ptr + last_offset), (unsigned char *)(address + last_offset));
     }
 
@@ -809,7 +935,9 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
     char* target_address2 = address + offset + disp;
 
     if (GetModule(target_address2) != module) {
-      FATAL("Relative jump to a differen module?\n");
+      WARN("Relative jump to a differen module in bb at %p\n", address);
+      InvalidInstruction(module);
+      return;
     }
 
     // preliminary encode jump instruction
@@ -884,7 +1012,9 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
       char *target_address = address + offset + disp;
 
       if (GetModule(target_address) != module) {
-        FATAL("Relative jump to a differen module?\n");
+        WARN("Relative jump to a differen module in bb at %p\n", address);
+        InvalidInstruction(module);
+        return;
       }
 
       // jump to translated target address
@@ -923,7 +1053,9 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
       char *call_address = address + offset + disp;
 
       if (GetModule(call_address) != module) {
-        FATAL("Relative call to a differen module?\n");
+        WARN("Relative jump to a differen module in bb at %p\n", address);
+        InvalidInstruction(module);
+        return;
       }
 
       // fix the displacement and emit the call
@@ -984,7 +1116,7 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
 
         } else {
           WriteCode(module, CALL, sizeof(CALL));
-          *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = sizeof(JMP);
+          FixDisp4(module, sizeof(JMP));
 
           WriteCode(module, JMP, sizeof(JMP));
 
@@ -1015,27 +1147,19 @@ bool LiteInst::TranslateBasicBlock(char *address, ModuleInfo *module, set<char *
       }
     }
   }
-
-  module->basic_blocks.insert({ original_offset, translated_offset });
-
-  return true;
 }
 
-bool LiteInst::TranslateBasicBlockRecursive(char *address, ModuleInfo *module) {
+void LiteInst::TranslateBasicBlockRecursive(char *address, ModuleInfo *module) {
   set<char *> queue;
   list<pair<uint32_t, uint32_t>> offset_fixes;
 
   size_t code_size_before = module->instrumented_code_allocated;
 
-  if (!TranslateBasicBlock(address, module, &queue, &offset_fixes)) {
-    return false;
-  }
+  TranslateBasicBlock(address, module, &queue, &offset_fixes);
 
   while (!queue.empty()) {
     address = *queue.begin();
-    if (!TranslateBasicBlock(address, module, &queue, &offset_fixes)) {
-      FATAL("Error translating %p", address);
-    }
+    TranslateBasicBlock(address, module, &queue, &offset_fixes);
     queue.erase(address);
   }
 
@@ -1056,15 +1180,27 @@ bool LiteInst::TranslateBasicBlockRecursive(char *address, ModuleInfo *module) {
 
   // Commit everything in one go here
   CommitCode(module, code_size_before, (code_size_after - code_size_before));
-
-  return true;
 }
 
 LiteInst::ModuleInfo *LiteInst::GetModule(char *address) {
   for (auto iter = instrumented_modules.begin(); iter != instrumented_modules.end(); iter++) {
     ModuleInfo *cur_module = *iter;
+    if (!cur_module->loaded) continue;
+    if (!cur_module->instrumented) continue;
     if ((address >= cur_module->base) && (address < (char *)cur_module->base + cur_module->size)) {
       return cur_module;
+      break;
+    }
+  }
+
+  return NULL;
+}
+
+LiteInst::AddressRange *LiteInst::GetRegion(ModuleInfo *module, size_t address) {
+  for (auto iter = module->executable_ranges.begin(); iter != module->executable_ranges.end(); iter++) {
+    AddressRange *cur_range = &(*iter);
+    if (((size_t)address >= cur_range->from) && ((size_t)address < cur_range->to)) {
+      return cur_range;
       break;
     }
   }
@@ -1075,7 +1211,9 @@ LiteInst::ModuleInfo *LiteInst::GetModule(char *address) {
 LiteInst::ModuleInfo *LiteInst::GetModuleFromInstrumented(char *address) {
   for (auto iter = instrumented_modules.begin(); iter != instrumented_modules.end(); iter++) {
     ModuleInfo *cur_module = *iter;
-    if ((address >= cur_module->instrumented_code_remote) && 
+    if (!cur_module->loaded) continue;
+    if (!cur_module->instrumented) continue;
+    if ((address >= cur_module->instrumented_code_remote) &&
       (address < cur_module->instrumented_code_remote + cur_module->instrumented_code_allocated)) {
       return cur_module;
       break;
@@ -1115,21 +1253,21 @@ void LiteInst::Debug(EXCEPTION_RECORD *exception_record) {
   for (size_t i = offset; i < offset_to; i++) {
     printf("%02x ", (unsigned char)(module->instrumented_code_local[i]));
   }
-
-
 }
 
 size_t LiteInst::GetTranslatedAddress(ModuleInfo *module, size_t address) {
   uint32_t offset = (uint32_t)(address - (size_t)module->base);
   uint32_t translated_offset;
 
+  if (!GetRegion(module, address)) return address;
+
   auto iter = module->basic_blocks.find(offset);
   if (iter == module->basic_blocks.end()) {
-    if (!TranslateBasicBlockRecursive((char *)address, module)) return false;
+    TranslateBasicBlockRecursive((char *)address, module);
 
     iter = module->basic_blocks.find(offset);
     if (iter == module->basic_blocks.end()) {
-      FATAL("Can't find translated basic block???");
+      FATAL("Can't find translated basic block");
     }
   }
 
@@ -1143,6 +1281,7 @@ bool LiteInst::TryExecuteInstrumented(char *address, DWORD thread_id) {
   ModuleInfo *module = GetModule(address);
 
   if (!module) return false;
+  if (!GetRegion(module, (size_t)address)) return false;
 
   if (trace_module_entries) {
     printf("TRACE: Entered module %s at address %p\n", module->module_name, address);
@@ -1168,7 +1307,7 @@ bool LiteInst::TryExecuteInstrumented(char *address, DWORD thread_id) {
   return true;
 }
 
-void LiteInst::InstrumentModule(ModuleInfo *module) {
+void LiteInst::ExtractCodeRanges(ModuleInfo *module) {
   LPCVOID end_address = (char *)module->base + module->size;
   LPCVOID cur_address = module->base;
   MEMORY_BASIC_INFORMATION meminfobuf;
@@ -1189,7 +1328,7 @@ void LiteInst::InstrumentModule(ModuleInfo *module) {
     if (meminfobuf.Protect & 0xF0) {
       // printf("%p, %llx, %lx\n", meminfobuf.BaseAddress, meminfobuf.RegionSize, meminfobuf.Protect);
 
-      size_t size_read;
+      SIZE_T size_read;
       newRange.data = (char *)malloc(meminfobuf.RegionSize);
       if (!ReadProcessMemory(child_handle, meminfobuf.BaseAddress, newRange.data, meminfobuf.RegionSize, &size_read)) {
         FATAL("Error in ReadProcessMemory");
@@ -1215,9 +1354,78 @@ void LiteInst::InstrumentModule(ModuleInfo *module) {
 
     cur_address = (char *)meminfobuf.BaseAddress + meminfobuf.RegionSize;
   }
+}
 
-  if (module->instrumented_code_size) {
-    FATAL("Module was already loaded, TODO\n");
+void LiteInst::ProtectCodeRanges(ModuleInfo *module) {
+  MEMORY_BASIC_INFORMATION meminfobuf;
+
+  for (auto iter = module->executable_ranges.begin(); iter != module->executable_ranges.end(); iter++) {
+    size_t ret = VirtualQueryEx(child_handle, (void *)iter->from, &meminfobuf, sizeof(MEMORY_BASIC_INFORMATION));
+
+    // if the module was already instrumented, everything must be the same as before
+    if (!ret) {
+      FATAL("Error in ProtectCodeRanges. Target incompatible with persist_instrumentation_data");
+    }
+    if (iter->from != (size_t)meminfobuf.BaseAddress) {
+      FATAL("Error in ProtectCodeRanges. Target incompatible with persist_instrumentation_data");
+    }
+    if (iter->to != (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize) {
+      FATAL("Error in ProtectCodeRanges. Target incompatible with persist_instrumentation_data");
+    }
+    if (!(meminfobuf.Protect & 0xF0)) {
+      FATAL("Error in ProtectCodeRanges. Target incompatible with persist_instrumentation_data");
+    }
+
+    uint8_t low = meminfobuf.Protect & 0xFF;
+    low = low >> 4;
+    DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
+    DWORD oldProtect;
+    if (!VirtualProtectEx(child_handle, meminfobuf.BaseAddress, meminfobuf.RegionSize, newProtect, &oldProtect)) {
+      FATAL("Error in VirtualProtectEx");
+    }
+  }
+}
+
+// clears all instrumentation data from module locally
+// and if clear_remote_data is set, also in the remote process 
+void LiteInst::ClearInstrumentation(ModuleInfo *module, bool clear_remote_data) {
+  if (clear_remote_data) {
+    module->ClearInstrumentation(child_handle);
+  } else {
+    module->ClearInstrumentation(NULL);
+  }
+  ClearCrossModuleLinks(module);
+}
+
+
+void LiteInst::InstrumentModule(ModuleInfo *module) {
+  // if the module was already instrumented, first try to allocate instrumentation data in the same place
+  // as persistent instrumentation depends on it
+  if (persist_instrumentation_data && module->instrumented) {
+    if (!module->instrumented_code_remote && module->instrumented_code_remote_previous) {
+      module->instrumented_code_remote = (char *)VirtualAllocEx(child_handle, (LPVOID)module->instrumented_code_remote_previous, module->instrumented_code_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READ);
+      if (!module->instrumented_code_remote) {
+        WARN("Coudln't allocate instrumented data in the previous position, module will need to be re-instrumented");
+        ClearInstrumentation(module, true);
+      } else if (module->instrumented_code_remote != module->instrumented_code_remote_previous) {
+        FATAL("Coudln't allocate instrumented data in the previous position\n");
+      } else {
+        // all is well, just copy old instrumented code
+        CommitCode(module, 0, module->instrumented_code_allocated);
+      }
+    }
+  }
+
+  if (persist_instrumentation_data && module->instrumented) {
+    ProtectCodeRanges(module);
+  } else {
+    ExtractCodeRanges(module);
+  }
+
+  if (module->instrumented_code_local && module->instrumented_code_remote) {
+    FixCrossModuleLinks(module);
+    printf("Module %s already instrumented, reusing instrumentation data\n", module->module_name);
+    return;
   }
 
   // Alternative, but requires Windows 10
@@ -1255,37 +1463,9 @@ void LiteInst::InstrumentModule(ModuleInfo *module) {
   if (max_code < module->instrumented_code_size) max_code = 0;
   else max_code -= module->instrumented_code_size;
   // try as close as possible
-  uint64_t cur_code = max_code;
-  while (cur_code > min_code) {
-    // Don't attempt allocating on the null page
-    if (cur_code < 0x1000) break;
 
-    size_t step = module->instrumented_code_size;
+  module->instrumented_code_remote = (char *)RemoteAllocateBefore(min_code, max_code, module->instrumented_code_size, PAGE_EXECUTE_READ);
 
-    size_t ret = VirtualQueryEx(child_handle, (LPCVOID)cur_code, &meminfobuf, sizeof(MEMORY_BASIC_INFORMATION));
-    if (!ret) break;
-
-    if (meminfobuf.State == MEM_FREE) {
-      if (meminfobuf.RegionSize >= module->instrumented_code_size) {
-        size_t address = (size_t)meminfobuf.BaseAddress + (meminfobuf.RegionSize - module->instrumented_code_size);
-        module->instrumented_code_remote = (char *)VirtualAllocEx(child_handle, (LPVOID)address, module->instrumented_code_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READ);
-        if (module->instrumented_code_remote) {
-          if (((size_t)module->instrumented_code_remote >= min_code) &&
-            ((size_t)module->instrumented_code_remote <= max_code)) {
-            break;
-          } else {
-            FATAL("Error allocating remote code buffer\n");
-          }
-        }
-      } else {
-        step = module->instrumented_code_size - meminfobuf.RegionSize;
-      }
-    }
-
-    cur_code = (size_t)meminfobuf.BaseAddress;
-    if (cur_code < step) break;
-    else cur_code -= step;
-  }
   if (!module->instrumented_code_remote) {
     // TODO also try allocating after the module
     FATAL("Error allocating remote code buffer\n");
@@ -1296,14 +1476,55 @@ void LiteInst::InstrumentModule(ModuleInfo *module) {
   }
 
   module->instrumented = true;
+  FixCrossModuleLinks(module);
 
-  printf("Done instrumenting %s, ranges: %lld\n", module->module_name, module->executable_ranges.size());
+  printf("Done instrumenting %s, ranges: %zd\n", module->module_name, module->executable_ranges.size());
+}
+
+void *LiteInst::RemoteAllocateBefore(uint64_t min_address, uint64_t max_address, size_t size, DWORD protection_flags) {
+  MEMORY_BASIC_INFORMATION meminfobuf;
+  void *ret_address = NULL;
+
+  uint64_t cur_code = max_address;
+  while (cur_code > min_address) {
+    // Don't attempt allocating on the null page
+    if (cur_code < 0x1000) break;
+
+    size_t step = size;
+
+    size_t query_ret = VirtualQueryEx(child_handle, (LPCVOID)cur_code, &meminfobuf, sizeof(MEMORY_BASIC_INFORMATION));
+    if (!query_ret) break;
+
+    if (meminfobuf.State == MEM_FREE) {
+      if (meminfobuf.RegionSize >= size) {
+        size_t address = (size_t)meminfobuf.BaseAddress + (meminfobuf.RegionSize - size);
+        ret_address = VirtualAllocEx(child_handle, (LPVOID)address, size, MEM_COMMIT | MEM_RESERVE, protection_flags);
+        if (ret_address) {
+          if (((size_t)ret_address >= min_address) &&
+            ((size_t)ret_address <= max_address)) {
+            return ret_address;
+          } else {
+            return NULL;
+          }
+        }
+      } else {
+        step = size - meminfobuf.RegionSize;
+      }
+    }
+
+    cur_code = (size_t)meminfobuf.BaseAddress;
+    if (cur_code < step) break;
+    else cur_code -= step;
+  }
+
+  return ret_address;
 }
 
 void LiteInst::InstrumentAllLoadedModules() {
   for (auto iter = instrumented_modules.begin(); iter != instrumented_modules.end(); iter++) {
     ModuleInfo *cur_module = *iter;
     if (cur_module->base && cur_module->size) {
+      if (!cur_module->loaded) continue;
       InstrumentModule(cur_module);
     }
   }
@@ -1321,6 +1542,12 @@ LiteInst::ModuleInfo *LiteInst::IsInstrumentModule(char *module_name) {
 }
 
 void LiteInst::OnInstrumentModuleLoaded(HMODULE module, ModuleInfo *target_module) {
+  if (persist_instrumentation_data && target_module->base && (target_module->base != (void *)module)) {
+    WARN("Instrumented module loaded on a different address than seen previously\n"
+         "Module will need to be re-instrumented. Expect a drop in performance.");
+    ClearInstrumentation(target_module, true);
+  }
+
   target_module->base = (void *)module;
   target_module->size = GetImageSize(target_module->base);
   target_module->loaded = true;
@@ -1330,11 +1557,15 @@ void LiteInst::OnInstrumentModuleLoaded(HMODULE module, ModuleInfo *target_modul
 void LiteInst::OnModuleLoaded(HMODULE module, char *module_name) {
   Debugger::OnModuleLoaded(module, module_name);
 
-  ModuleInfo *coverage_module = IsInstrumentModule(module_name);
-  if (coverage_module) {
-    OnInstrumentModuleLoaded(module, coverage_module);
+  ModuleInfo *instrument_module = IsInstrumentModule(module_name);
+  if (instrument_module) {
+    OnInstrumentModuleLoaded(module, instrument_module);
 
-    if (persist_target_reached) InstrumentModule(coverage_module);
+    if (persistence_mode) {
+      if (persist_target_reached) InstrumentModule(instrument_module);
+    } else if (child_entrypoint_reached) {
+      InstrumentModule(instrument_module);
+    }
   }
 }
 
@@ -1346,6 +1577,10 @@ void LiteInst::OnModuleUnloaded(HMODULE module) {
     ModuleInfo *cur_module = *iter;
     if (cur_module->base == (void *)module) {
       cur_module->loaded = false;
+      if (!persist_instrumentation_data) {
+        ClearInstrumentation(cur_module, true);
+      }
+      InvalidateCrossModuleLinks(cur_module);
     }
   }
 }
@@ -1353,8 +1588,15 @@ void LiteInst::OnModuleUnloaded(HMODULE module) {
 void LiteInst::OnPersistMethodReached(DWORD thread_id) {
   Debugger::OnPersistMethodReached(thread_id);
 
-  InstrumentAllLoadedModules();
+  if (persistence_mode) InstrumentAllLoadedModules();
 }
+
+void LiteInst::OnEntrypoint() {
+  Debugger::OnEntrypoint();
+
+  if(!persistence_mode) InstrumentAllLoadedModules();
+}
+
 
 bool LiteInst::OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) {
   switch (exception_record->ExceptionCode)
@@ -1383,6 +1625,18 @@ void LiteInst::OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) {
   } else {
     xed_mmode = XED_MACHINE_MODE_LEGACY_32;
   }
+
+  for (auto iter = instrumented_modules.begin(); iter != instrumented_modules.end(); iter++) {
+    ModuleInfo *cur_module = *iter;
+    cur_module->loaded = false;
+    if (!persist_instrumentation_data) {
+      ClearInstrumentation(cur_module, false);
+    } else if(cur_module->instrumented_code_remote) {
+      cur_module->instrumented_code_remote_previous = cur_module->instrumented_code_remote;
+      cur_module->instrumented_code_remote = NULL;
+    }
+  }
+  InvalidateCrossModuleLinks();
 }
 
 void LiteInst::Init(int argc, char **argv) {
@@ -1391,7 +1645,8 @@ void LiteInst::Init(int argc, char **argv) {
 
   indirect_instrumentation_mode = II_AUTO;
   patch_return_addresses = false;
-  instrument_cross_module_calls = true; // TODO: handle this when modules get undloaded
+  instrument_cross_module_calls = true;
+  persist_instrumentation_data = true;
 
   trace_basic_blocks = false;
   trace_module_entries = false;
