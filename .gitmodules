@@ -1,0 +1,6 @@
+[submodule "third_party/xed"]
+	path = third_party/xed
+	url = https://github.com/intelxed/xed
+[submodule "third_party/mbuild"]
+	path = third_party/mbuild
+	url = https://github.com/intelxed/mbuild
