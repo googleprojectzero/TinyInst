@@ -1,3 +1,19 @@
+/*
+Copyright 2020 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+https ://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 #include <inttypes.h>
 #include <list>
 
@@ -13,6 +29,31 @@ uint64_t GetCurTime(void) {
   ret = (((uint64_t)filetime.dwHighDateTime) << 32) + (uint64_t)filetime.dwLowDateTime;
 
   return ret / 10000;
+}
+
+bool BoolFromOptionValue(char *value) {
+  if (_stricmp(value, "off") == 0) return false;
+  if (_stricmp(value, "false") == 0) return false;
+  if (_stricmp(value, "0") == 0) return false;
+  return true;
+}
+
+bool GetBinaryOption(char *name, int argc, char** argv, bool default_value) {
+  for (int i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "--") == 0) break;
+    if (strcmp(argv[i], name) == 0) {
+      if ((i + 1) < argc && strcmp(argv[i + 1], "--")) {
+        return BoolFromOptionValue(argv[i + 1]);
+      }
+      return true;
+    }
+    if (strncmp(argv[i], name, strlen(name)) == 0) {
+      if (argv[i][strlen(name)] == '=') {
+        return BoolFromOptionValue(argv[i] + strlen(name) + 1);
+      }
+    }
+  }
+  return default_value;
 }
 
 char *GetOption(char *name, int argc, char** argv) {
@@ -34,6 +75,7 @@ char *GetOption(char *name, int argc, char** argv) {
   return NULL;
 }
 
+
 void GetOptionAll(char *name, int argc, char** argv, std::list<char *> *results) {
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "--") == 0) return;
@@ -50,6 +92,12 @@ void GetOptionAll(char *name, int argc, char** argv, std::list<char *> *results)
       }
     }
   }
+}
+
+int GetIntOption(char *name, int argc, char** argv, int default_value) {
+  char *option = GetOption(name, argc, argv);
+  if (!option) return default_value;
+  return strtol(option, NULL, 0);
 }
 
 

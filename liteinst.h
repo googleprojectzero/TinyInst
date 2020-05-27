@@ -1,3 +1,19 @@
+/*
+Copyright 2020 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+https ://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 #ifndef LITEINST_H
 #define LITEINST_H
 
@@ -32,60 +48,27 @@ protected:
     II_AUTO
   };
 
+  enum InstructionResult {
+    INST_HANDLED,
+    INST_NOTHANDLED,
+    INST_STOPBB
+  };
+
   struct AddressRange {
     size_t from;
     size_t to;
     char *data;
   };
 
+  struct IndirectBreakpoinInfo {
+    size_t list_head;
+    size_t source_bb;
+  };
+
   class ModuleInfo {
   public:
-    ModuleInfo() {
-      module_name[0] = 0;
-      base = NULL;
-      size = 0;
-      code_size = 0;
-      loaded = false;
-      instrumented = false;
-      instrumented_code_local = NULL;
-      instrumented_code_remote = NULL;
-      instrumented_code_remote_previous = NULL;
-      instrumented_code_size = 0;
-      mapping = NULL;
-    }
-
-    void ClearInstrumentation(HANDLE child_handle) {
-      instrumented = false;
-
-      for (auto iter = executable_ranges.begin(); iter != executable_ranges.end(); iter++) {
-        if (iter->data) free(iter->data);
-      }
-      executable_ranges.clear();
-      code_size = 0;
-
-      if(instrumented_code_local)
-        VirtualFree(instrumented_code_local, 0, MEM_RELEASE);
-      if(child_handle && instrumented_code_remote)
-        VirtualFreeEx(child_handle, instrumented_code_remote, 0, MEM_RELEASE);
-
-      instrumented_code_local = NULL;
-      instrumented_code_remote = NULL;
-      instrumented_code_remote_previous = NULL;
-
-      instrumented_code_size = 0;
-      instrumented_code_allocated = 0;
-
-      basic_blocks.clear();
-
-      br_indirect_newtarget_global = 0;
-      br_indirect_newtarget_list.clear();
-
-      jumptable_offset = 0;
-      jumptable_address_offset = 0;
-
-      invalid_instructions.clear();
-      tracepoints.clear();
-    }
+    ModuleInfo();
+    void ClearInstrumentation(HANDLE child_handle);
 
     char module_name[MAX_PATH];
     void *base;
@@ -108,13 +91,17 @@ protected:
 
     // per callsite jumplist breakpoint
     // from breakpoint address to list head offset
-    std::unordered_map<size_t, size_t> br_indirect_newtarget_list;
+    std::unordered_map<size_t, IndirectBreakpoinInfo> br_indirect_newtarget_list;
 
     size_t jumptable_offset;
     size_t jumptable_address_offset;
 
     std::unordered_set<size_t> invalid_instructions;
     std::unordered_map<size_t, size_t> tracepoints;
+
+    // clients can use this to store additional data
+    // about the module
+    void *client_data;
   };
   std::list<ModuleInfo *> instrumented_modules;
 
@@ -127,10 +114,47 @@ protected:
 
   virtual void OnEntrypoint() override;
   virtual void OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) override;
+  virtual void OnProcessExit() override;
   virtual void OnModuleLoaded(HMODULE module, char *module_name) override;
   virtual void OnModuleUnloaded(HMODULE module) override;
   virtual bool OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) override;
-  virtual void OnPersistMethodReached(DWORD thread_id) override;
+  virtual void OnTargetMethodReached(DWORD thread_id) override;
+
+  virtual size_t GetTranslatedAddress(size_t address) override;
+
+  // helper functions
+  void *RemoteAllocateBefore(uint64_t min_address,
+                             uint64_t max_address,
+                             size_t size,
+                             DWORD protection_flags);
+  void OffsetStack(ModuleInfo *module, int32_t offset);
+  void ReadStack(ModuleInfo *module, int32_t offset);
+  void WriteStack(ModuleInfo *module, int32_t offset);
+  void WriteCode(ModuleInfo *module, void *data, size_t size);
+  void WriteCodeAtOffset(ModuleInfo *module, size_t offset, void *data, size_t size);
+  void WritePointer(ModuleInfo *module, size_t value);
+  void WritePointerAtOffset(ModuleInfo *module, size_t value, size_t offset);
+  size_t ReadPointer(ModuleInfo *module, size_t offset);
+
+  // fixes the memory displacement of the current instruction
+  // (assumes it is in the 4 last bytes)
+  inline void FixDisp4(ModuleInfo *module, int32_t disp) {
+    *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4)
+      = disp;
+  }
+
+  // gets the current code address in the instrumented code
+  // *in the child process*
+  inline size_t GetCurrentInstrumentedAddress(ModuleInfo *module) {
+    return (size_t)module->instrumented_code_remote + module->instrumented_code_allocated;
+  }
+
+  void CommitCode(ModuleInfo *module, size_t start_offset, size_t size);
+
+  ModuleInfo *GetModuleByName(char *name);
+  ModuleInfo *GetModule(size_t address);
+  ModuleInfo *GetModuleFromInstrumented(size_t address);
+  AddressRange *GetRegion(ModuleInfo *module, size_t address);
 
 private:
   bool HandleBreakpoint(void *address, DWORD thread_id);
@@ -140,66 +164,99 @@ private:
   void ExtractCodeRanges(ModuleInfo *module);
   void ProtectCodeRanges(ModuleInfo *module);
   void InstrumentModule(ModuleInfo *module);
-  void ClearInstrumentation(ModuleInfo *module, bool clear_remote_data);
+  void ClearInstrumentation(ModuleInfo *module);
   bool TryExecuteInstrumented(char * address, DWORD thread_id);
   size_t GetTranslatedAddress(ModuleInfo *module, size_t address);
-  void TranslateBasicBlock(char *address, ModuleInfo *module, std::set<char *> *queue, std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
+  void TranslateBasicBlock(char *address,
+                           ModuleInfo *module,
+                           std::set<char *> *queue,
+                           std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
   void TranslateBasicBlockRecursive(char *address, ModuleInfo *module);
-  ModuleInfo *GetModule(char *address);
-  ModuleInfo *GetModuleFromInstrumented(char *address);
-  AddressRange *GetRegion(ModuleInfo *module, size_t address);
-  void FixOffsetOrEnqueue(ModuleInfo *module, uint32_t bb, uint32_t jmp_offset, std::set<char *> *queue, std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
-  void CommitCode(ModuleInfo *module, size_t start_offset, size_t size);
-  void FixInstructionAndOutput(ModuleInfo *module, xed_decoded_inst_t *xedd, unsigned char *input, unsigned char *input_address_remote, bool convert_to_jmp = false);
+  void FixOffsetOrEnqueue(ModuleInfo *module,
+                          uint32_t bb,
+                          uint32_t jmp_offset,
+                          std::set<char *> *queue,
+                          std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
+  void FixInstructionAndOutput(ModuleInfo *module,
+                               xed_decoded_inst_t *xedd,
+                               unsigned char *input,
+                               unsigned char *input_address_remote,
+                               bool convert_call_to_jmp = false);
   void Debug(EXCEPTION_RECORD *exception_record);
   void InvalidInstruction(ModuleInfo *module);
 
-  void *LiteInst::RemoteAllocateBefore(uint64_t min_address, uint64_t max_address, size_t size, DWORD protection_flags);
-
+  // needed to support cross-module linking
+  // on module unloads / reloads
   void InvalidateCrossModuleLink(CrossModuleLink *link);
   void FixCrossModuleLink(CrossModuleLink *link);
   void FixCrossModuleLinks(ModuleInfo *module);
   void InvalidateCrossModuleLinks(ModuleInfo *module);
   void InvalidateCrossModuleLinks();
   void ClearCrossModuleLinks(ModuleInfo *module);
-
-  inline void FixDisp4(ModuleInfo *module, int32_t disp) {
-    *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4) = disp;
-  }
-
-  inline size_t GetCurrentInstrumentedAddress(ModuleInfo *module) {
-    return (size_t)module->instrumented_code_remote + module->instrumented_code_allocated;
-  }
+  void ClearCrossModuleLinks();
 
   // functions related to indirect jump/call instrumentation
   void InitGlobalJumptable(ModuleInfo *module);
-  void MovIndirectTarget(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t original_address, int32_t stack_offset);
-  void InstrumentIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address, IndirectInstrumentation mode);
-  void InstrumentRet(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address, IndirectInstrumentation mode);
-  void InstrumentGlobalIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address);
-  void InstrumentLocalIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address);
+  void MovIndirectTarget(ModuleInfo *module,
+                         xed_decoded_inst_t *xedd,
+                         size_t original_address,
+                         int32_t stack_offset);
+  void InstrumentIndirect(ModuleInfo *module,
+                          xed_decoded_inst_t *xedd,
+                          size_t instruction_address,
+                          IndirectInstrumentation mode,
+                          size_t bb_address);
+  void InstrumentRet(ModuleInfo *module,
+                     xed_decoded_inst_t *xedd,
+                     size_t instruction_address,
+                     IndirectInstrumentation mode,
+                     size_t bb_address);
+  void InstrumentGlobalIndirect(ModuleInfo *module,
+                                xed_decoded_inst_t *xedd,
+                                size_t instruction_address);
+  void InstrumentLocalIndirect(ModuleInfo *module,
+                               xed_decoded_inst_t *xedd,
+                               size_t instruction_address,
+                               size_t bb_address);
 
   // returns the indirect instrumentation mode that should be used for a particular call
   // can be overriden
-  virtual IndirectInstrumentation ShouldInstrumentIndirect(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address);
+  virtual IndirectInstrumentation ShouldInstrumentIndirect(ModuleInfo *module,
+                                                           xed_decoded_inst_t *xedd,
+                                                           size_t instruction_address);
 
   void LiteInst::PushReturnAddress(ModuleInfo *module, uint64_t return_address);
 
-  void OffsetStack(ModuleInfo *module, int32_t offset);
-  void ReadStack(ModuleInfo *module, int32_t offset);
-  void WriteStack(ModuleInfo *module, int32_t offset);
-  void WriteCode(ModuleInfo *module, void *data, size_t size);
-  void WriteCodeAtOffset(ModuleInfo *module, size_t offset, void *data, size_t size);
-  void WritePointer(ModuleInfo *module, size_t value);
-  void WritePointerAtOffset(ModuleInfo *module, size_t value, size_t offset);
-  size_t ReadPointer(ModuleInfo *module, size_t offset);
-  bool IsRipRelative(ModuleInfo *module, xed_decoded_inst_t *xedd, size_t instruction_address, size_t *mem_address);
-  size_t AddTranslatedJump(ModuleInfo *module, ModuleInfo *target_module, size_t original_target, size_t actual_target, size_t list_head_offset, bool global_indirect);
+  bool IsRipRelative(ModuleInfo *module,
+                     xed_decoded_inst_t *xedd,
+                     size_t instruction_address,
+                     size_t *mem_address);
+  size_t AddTranslatedJump(ModuleInfo *module,
+                           ModuleInfo *target_module,
+                           size_t original_target,
+                           size_t actual_target,
+                           size_t list_head_offset,
+                           size_t edge_start_address,
+                           bool global_indirect);
   bool HandleIndirectJMPBreakpoint(void *address, DWORD thread_id);
 
   // instrumentation API
+  virtual void OnModuleEntered(ModuleInfo *module, size_t entry_address) {}
   virtual void InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) {}
-  virtual void InstrumentEdge(ModuleInfo *module, size_t previous_address, size_t next_address) {}
+  virtual void InstrumentEdge(ModuleInfo *previous_module,
+                              ModuleInfo *next_module,
+                              size_t previous_address,
+                              size_t next_address) {}
+
+  virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
+                                                  xed_decoded_inst_t *xedd,
+                                                  size_t instruction_address)
+  { 
+    return INST_NOTHANDLED;
+  }
+
+  virtual void OnModuleInstrumented(ModuleInfo *module) {}
+  virtual void OnModuleUninstrumented(ModuleInfo *module) {}
 
   int xed_mmode;
 
