@@ -119,6 +119,7 @@ protected:
   virtual void OnModuleUnloaded(HMODULE module) override;
   virtual bool OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) override;
   virtual void OnTargetMethodReached(DWORD thread_id) override;
+  virtual void OnCrashed(EXCEPTION_RECORD *exception_record) override;
 
   virtual size_t GetTranslatedAddress(size_t address) override;
 
@@ -182,7 +183,6 @@ private:
                                unsigned char *input,
                                unsigned char *input_address_remote,
                                bool convert_call_to_jmp = false);
-  void Debug(EXCEPTION_RECORD *exception_record);
   void InvalidInstruction(ModuleInfo *module);
 
   // needed to support cross-module linking

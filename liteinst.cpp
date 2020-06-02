@@ -806,7 +806,13 @@ void LiteInst::InstrumentGlobalIndirect(ModuleInfo *module,
     // push RBX
     WriteCode(module, PUSH_FAB, sizeof(PUSH_FAB));
 
-    MovIndirectTarget(module, xedd, instruction_address, sp_offset + 3 * child_ptr_size);
+    int32_t stack_offset = sp_offset + 3 * child_ptr_size;
+
+    if (xed_decoded_inst_get_category(xedd) == XED_CATEGORY_CALL) {
+      stack_offset += child_ptr_size;
+    }
+
+    MovIndirectTarget(module, xedd, instruction_address, stack_offset);
   } else {
     // stack already set up, just push RBX
     WriteCode(module, PUSH_B, sizeof(PUSH_B));
@@ -849,7 +855,13 @@ void LiteInst::InstrumentLocalIndirect(ModuleInfo *module, xed_decoded_inst_t *x
     // push RAX
     WriteCode(module, PUSH_FA, sizeof(PUSH_FA));
 
-    MovIndirectTarget(module, xedd, instruction_address, sp_offset + 2 * child_ptr_size);
+    int32_t stack_offset = sp_offset + 2 * child_ptr_size;
+
+    if (xed_decoded_inst_get_category(xedd) == XED_CATEGORY_CALL) {
+      stack_offset += child_ptr_size;
+    }
+
+    MovIndirectTarget(module, xedd, instruction_address, stack_offset);
   } else {
     // stack already set up
   }
@@ -1544,22 +1556,16 @@ LiteInst::ModuleInfo *LiteInst::GetModuleFromInstrumented(size_t address) {
   return NULL;
 }
 
-void LiteInst::Debug(EXCEPTION_RECORD *exception_record) {
+void LiteInst::OnCrashed(EXCEPTION_RECORD *exception_record) {
   char *address = (char *)exception_record->ExceptionAddress;
-  ModuleInfo *module = NULL;
-  for (auto iter = instrumented_modules.begin();
-       iter != instrumented_modules.end(); iter++)
-  {
-    ModuleInfo *cur_module = *iter;
-    if ((address >= cur_module->instrumented_code_remote) &&
-        (address < (char *)cur_module->instrumented_code_remote +
-                   cur_module->instrumented_code_size))
-    {
-      module = cur_module;
-      break;
-    }
+
+  printf("Exception at address %p\n", address);
+  if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+    printf("Access type: %d\n", (int)exception_record->ExceptionInformation[0]);
+    printf("Access address: %zx\n", exception_record->ExceptionInformation[1]);
   }
 
+  ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return;
 
   printf("Exception in instrumented module %s\n", module->module_name);

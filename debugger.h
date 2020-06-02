@@ -26,7 +26,8 @@ enum DebuggerStatus {
   DEBUGGER_TARGET_START,
   DEBUGGER_TARGET_END,
   DEBUGGER_CRASHED,
-  DEBUGGER_HANGED
+  DEBUGGER_HANGED,
+  DEBUGGER_ATTACHED
 };
 
 class Debugger {
@@ -55,6 +56,8 @@ protected:
     return false;
   }
 
+  virtual void OnCrashed(EXCEPTION_RECORD *exception_record) { }
+
   void *GetModuleEntrypoint(void *base_address);
   void ReadStack(void *stack_addr, void **buffer, size_t numitems);
   void WriteStack(void *stack_addr, void **buffer, size_t numitems);
@@ -73,6 +76,7 @@ private:
   std::list<Breakpoint *> breakpoints;
 
   void StartProcess(char *cmd);
+  void GetProcessPlatform();
   DebuggerStatus DebugLoop();
   int HandleDebuggerBreakpoint(void *address, DWORD thread_id);
   void HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll);

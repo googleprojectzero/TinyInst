@@ -616,6 +616,7 @@ void Debugger::OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) {
     child_handle = info->hProcess;
     child_thread_handle = info->hThread;
     child_entrypoint_reached = true;
+    GetProcessPlatform();
   } else {
     // add a brekpoint to the process entrypoint
     void *entrypoint = GetModuleEntrypoint(info->lpBaseOfImage);
@@ -737,6 +738,7 @@ DebuggerStatus Debugger::DebugLoop()
     {
     case EXCEPTION_DEBUG_EVENT:
       ret = HandleExceptionInternal(&DebugEv->u.Exception.ExceptionRecord, DebugEv->dwThreadId);
+      if (ret == DEBUGGER_CRASHED) OnCrashed(&DebugEv->u.Exception.ExceptionRecord);
       if (ret != DEBUGGER_CONTINUE) return ret;
       break;
 
@@ -873,6 +875,10 @@ void Debugger::StartProcess(char *cmd) {
     }
   }
 
+  GetProcessPlatform();
+}
+
+void Debugger::GetProcessPlatform() {
   BOOL wow64current, wow64remote;
   if (!IsWow64Process(child_handle, &wow64remote)) {
     FATAL("IsWow64Process failed");
@@ -929,6 +935,8 @@ DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
           "Make sure the process exists and you have permissions to debug it.\n");
   }
 
+  dbg_last_status = DEBUGGER_ATTACHED;
+
   return Continue(timeout);
 }
 
@@ -944,7 +952,8 @@ DebuggerStatus Debugger::Run(char *cmd, uint32_t timeout) {
 // continues after Run() or previous Continue()
 // return with a non-terminal status
 DebuggerStatus Debugger::Continue(uint32_t timeout) {
-  if (!child_handle) return DEBUGGER_PROCESS_EXIT;
+  if (!child_handle && (dbg_last_status != DEBUGGER_ATTACHED))
+    return DEBUGGER_PROCESS_EXIT;
 
   if (loop_mode && (dbg_last_status == DEBUGGER_TARGET_END)) {
     // saves us a breakpoint

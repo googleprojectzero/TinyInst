@@ -30,7 +30,7 @@ LiteInst is a full binary rewriting solution, so arbitrary behavior can be chang
 
 ### Which operating system does LiteInst support?
 
-Currently Windows only (32- and 64-bit). Mac OS supprt might be considered in the future.
+Currently Windows only (32- and 64-bit). Mac OS support might be considered in the future.
 
 ### Which targets are compatible with LiteInst?
 
@@ -51,7 +51,7 @@ According to early measurements on image decoding, on a well-behaving 64-bit tar
 
 2. Navigate to the directory containing the source
 
-3. Run the followng (change the generator according to the version of Visual Studio and platform you want to build for):
+3. Run the following commands (change the generator according to the version of Visual Studio and platform you want to build for):
 
 ```
 mkdir build
@@ -79,7 +79,9 @@ The command line options are defined below and a client can also define their ow
 `DebuggerStatus Run(char *cmd, uint32_t timeout);`
 `DebuggerStatus Attach(unsigned int pid, uint32_t timeout);`
 
-These function either run a program (using the specified command line) or attach to an already running program. If no target method is specified, the target will continue running until either the program exits, the program crashes, or the timeout (given in milliseconds) expires. If a target method is defined, LiteInst is going to return whenever the target method is entered and whenever target method returns, allowing the caller to perform additional tasks. When `Run` and `Attach` return while the target process is still alive, the following functions can be used to either terminate the process or continue execution.
+These functions either run a program (using the specified command line) or attach to an already running program. If no target method is specified, the target will continue running until either the program exits, the program crashes, or the timeout (given in milliseconds) expires. If a target method is defined, LiteInst is going to return whenever the target method is entered and whenever target method returns, allowing the caller to perform additional tasks.
+
+When `Run` and `Attach` return while the target process is still alive, the following functions can be used to either terminate the process or continue execution.
 
 `DebuggerStatus Kill();`
 
@@ -150,7 +152,7 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 `-patch_return_addresses` - replaces return address with the original value, causes returns to be instrumented using whatever `-indirect_instrumentation` method is specified
 
-`-persist_instrumentation_data` (default = true) Does not reinstrument module on module unloads / reloads. Only works if module is loaded on the same address it was loaded before.
+`-persist_instrumentation_data` (default = true) Does not reinstrument module on module unloads / reloads. Only works if the module is loaded on the same address it was loaded before.
 
 `-instrument_cross_module_calls` (default=true) If multiple `-instrument_module` modules are specified and one calls into another, jump to instrumented code of the other module without causing an exception (which would cause slowdowns).
 
@@ -166,17 +168,17 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 ### Target method and persistence
 
-LiteInst allows user to define a target method. If a target method is defineed, no code will be instrumented (everything will run natively) until the target method is reached for the first time. Additionally, LiteInst will break execution on the target method entry and exit.
+LiteInst allows user to define a target method. If a target method is defined, no code will be instrumented (everything will run natively) until the target method is reached for the first time. Additionally, LiteInst will break execution on the target method entry and exit.
 
 `-target_module` - module containing the target method
 
-`-target_method` - name of the target method. This only works if the target method is exported or you have symbols for target module.
+`-target_method` - name of the target method. This only works if the target method is exported or you have symbols for the target module.
 
 `-target_offset` - use when target method can't be specified by name. Relative address of the target method from the module base
 
-`-loop` - if this flag is specified, LiteInst will run the target mehod in an infinite loop (or until Kill() is called or process terminates for another reason). Function arguments will be saved and restored between iterations. This is mainly used to force persistence for fuzzing.
+`-loop` - if this flag is specified, LiteInst will run the target method in an infinite loop (or until Kill() is called or process terminates for another reason). Function arguments will be saved and restored between iterations. This is mainly used to force persistence for fuzzing.
 
-`-nargs` - number of target method arguments to saved between iteration. To be used together with `-loop`
+`-nargs` - number of target method arguments to save between iterations. To be used together with `-loop`
 
 `-callcon [ms64|stdcall|fastcall|thiscall]` - calling convention target method uses. To be used together with `-loop`
 
@@ -215,7 +217,7 @@ This mechanism can be implemented in 2 ways
 - per-callsite (local) list
 - global hashtable used by all indirect jumps/calls
 
-Global hashtable results in better performance. Local (per-callsite list) is allows getting correct edges (with correct source address) on indirect calls/jumps.
+Global hashtable results in better performance. Local (per-callsite list) allows getting correct edges (with correct source address) on indirect calls/jumps.
 
 Note that on modern Windows, due to CFG, all indirect jump/calls happen from the same location, therefore with CFG-compiled binaries, it is impossible (without some kind of special handling) to get accurate edges anyway. This, along with the performance benefit, is the reason why global hashlist is the default method for handling indirect calls/jumps in LiteInst.
 
