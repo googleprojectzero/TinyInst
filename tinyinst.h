@@ -35,7 +35,7 @@ limitations under the License.
 
 typedef struct xed_decoded_inst_s xed_decoded_inst_t;
 
-class LiteInst : public Debugger {
+class TinyInst : public Debugger {
 public:
   virtual void Init(int argc, char **argv);
 
@@ -225,7 +225,7 @@ private:
                                                            xed_decoded_inst_t *xedd,
                                                            size_t instruction_address);
 
-  void LiteInst::PushReturnAddress(ModuleInfo *module, uint64_t return_address);
+  void TinyInst::PushReturnAddress(ModuleInfo *module, uint64_t return_address);
 
   bool IsRipRelative(ModuleInfo *module,
                      xed_decoded_inst_t *xedd,

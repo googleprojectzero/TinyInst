@@ -17,36 +17,36 @@ cmake_minimum_required(VERSION "3.1")
 add_subdirectory(third_party)
 
 
-project("liteinst")
+project("tinyinst")
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
 link_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib)
 
-add_library(liteinst STATIC
+add_library(tinyinst STATIC
   common.h
   common.cpp
   debugger.h
   debugger.cpp
-  liteinst.h
-  liteinst.cpp
+  tinyinst.h
+  tinyinst.cpp
   coverage.h
   coverage.cpp
   litecov.h
   litecov.cpp
   )
 
-add_dependencies(liteinst xed)
+add_dependencies(tinyinst xed)
 
-target_link_libraries(liteinst "xed.lib")
-target_link_libraries(liteinst "Dbghelp.lib")
+target_link_libraries(tinyinst "xed.lib")
+target_link_libraries(tinyinst "Dbghelp.lib")
 
 
 project("litecov")
 
 add_executable(litecov
-  liteinst-coverage.cpp
+  tinyinst-coverage.cpp
   )
 
-target_link_libraries(litecov liteinst)
+target_link_libraries(litecov tinyinst)
 
 

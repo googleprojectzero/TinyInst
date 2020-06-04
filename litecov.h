@@ -21,7 +21,7 @@ limitations under the License.
 #include <set>
 
 #include "coverage.h"
-#include "liteinst.h"
+#include "tinyinst.h"
 
 #define COVERAGE_SIZE 0
 
@@ -54,7 +54,7 @@ public:
   bool has_remote_coverage;
 };
 
-class LiteInstCoverage : public LiteInst {
+class LiteCov : public TinyInst {
 public:
   virtual void Init(int argc, char **argv);
 

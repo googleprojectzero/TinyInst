@@ -46,8 +46,8 @@ void ModuleCovData::ClearInstrumentationData() {
   coverage_to_inst.clear();
 }
 
-void LiteInstCoverage::Init(int argc, char **argv) {
-  LiteInst::Init(argc, argv);
+void LiteCov::Init(int argc, char **argv) {
+  TinyInst::Init(argc, argv);
 
   coverage_type = COVTYPE_BB;
   char *option = GetOption("-covtype", argc, argv);
@@ -67,7 +67,7 @@ void LiteInstCoverage::Init(int argc, char **argv) {
   }
 }
 
-void LiteInstCoverage::OnModuleInstrumented(ModuleInfo *module) {
+void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
   data->ClearInstrumentationData();
@@ -102,7 +102,7 @@ void LiteInstCoverage::OnModuleInstrumented(ModuleInfo *module) {
   }
 }
 
-void LiteInstCoverage::OnModuleUninstrumented(ModuleInfo *module) {
+void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
   CollectCoverage(data);
@@ -115,7 +115,7 @@ void LiteInstCoverage::OnModuleUninstrumented(ModuleInfo *module) {
 }
 
 // just replaces the inserted instructions with NOPs
-void LiteInstCoverage::ClearCoverageInstrumentation(
+void LiteCov::ClearCoverageInstrumentation(
     ModuleInfo *module, uint64_t coverage_code)
 {
   ModuleCovData *data = (ModuleCovData *)module->client_data;
@@ -133,7 +133,7 @@ void LiteInstCoverage::ClearCoverageInstrumentation(
   data->coverage_to_inst.erase(iter);
 }
 
-void LiteInstCoverage::EmitCoverageInstrumentation(
+void LiteCov::EmitCoverageInstrumentation(
     ModuleInfo *module, uint64_t coverage_code)
 {
   ModuleCovData *data = (ModuleCovData *)module->client_data;
@@ -172,7 +172,7 @@ void LiteInstCoverage::EmitCoverageInstrumentation(
   }
 }
 
-void LiteInstCoverage::InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) {
+void LiteCov::InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) {
   if (coverage_type != COVTYPE_BB) return;
 
   uint64_t coverage_code = GetBBCode(module, bb_address);
@@ -180,7 +180,7 @@ void LiteInstCoverage::InstrumentBasicBlock(ModuleInfo *module, size_t bb_addres
   EmitCoverageInstrumentation(module, coverage_code);
 }
 
-void LiteInstCoverage::InstrumentEdge(
+void LiteCov::InstrumentEdge(
     ModuleInfo *previous_module,
     ModuleInfo *next_module,
     size_t previous_address,
@@ -196,7 +196,7 @@ void LiteInstCoverage::InstrumentEdge(
 }
 
 // basic block code is just offset from the start of the module
-uint64_t LiteInstCoverage::GetBBCode(ModuleInfo *module, size_t bb_address) {
+uint64_t LiteCov::GetBBCode(ModuleInfo *module, size_t bb_address) {
   return ((uint64_t)bb_address - (uint64_t)module->base);
 }
 
@@ -204,7 +204,7 @@ uint64_t LiteInstCoverage::GetBBCode(ModuleInfo *module, size_t bb_address) {
 // and next offset in the lower 32 bits
 // note that source address can be 0 if we don't know it
 // (module entries, indirect jumps using global jumptable)
-uint64_t LiteInstCoverage::GetEdgeCode(
+uint64_t LiteCov::GetEdgeCode(
     ModuleInfo *module, size_t edge_address1, size_t edge_address2)
 {
   uint64_t offset1 = 0;
@@ -215,7 +215,7 @@ uint64_t LiteInstCoverage::GetEdgeCode(
   return((offset1 << 32) + (offset2 & 0xFFFFFFFF));
 }
 
-void LiteInstCoverage::OnModuleEntered(ModuleInfo *module, size_t entry_address) {
+void LiteCov::OnModuleEntered(ModuleInfo *module, size_t entry_address) {
   if (coverage_type == COVTYPE_BB) return;
 
   // if we are in edge coverage mode, record module entries as edges
@@ -228,7 +228,7 @@ void LiteInstCoverage::OnModuleEntered(ModuleInfo *module, size_t entry_address)
 }
 
 // checks if address is in any of our remote coverage buffers
-ModuleCovData *LiteInstCoverage::GetDataByRemoteAddress(size_t address) {
+ModuleCovData *LiteCov::GetDataByRemoteAddress(size_t address) {
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++)
   {
@@ -244,7 +244,7 @@ ModuleCovData *LiteInstCoverage::GetDataByRemoteAddress(size_t address) {
 }
 
 // catches writing to the coverage buffer for the first time
-void LiteInstCoverage::HandleBufferWriteException(ModuleCovData *data) {
+void LiteCov::HandleBufferWriteException(ModuleCovData *data) {
   DWORD old_protect;
   if (!VirtualProtectEx(child_handle,
                         data->coverage_buffer_remote,
@@ -256,7 +256,7 @@ void LiteInstCoverage::HandleBufferWriteException(ModuleCovData *data) {
   data->has_remote_coverage = true;
 }
 
-bool LiteInstCoverage::OnException(
+bool LiteCov::OnException(
     EXCEPTION_RECORD *exception_record, DWORD thread_id)
 {
   if ((exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) &&
@@ -269,10 +269,10 @@ bool LiteInstCoverage::OnException(
     }
   }
 
-  return LiteInst::OnException(exception_record, thread_id);
+  return TinyInst::OnException(exception_record, thread_id);
 }
 
-void LiteInstCoverage::ClearRemoteBuffer(ModuleCovData *data) {
+void LiteCov::ClearRemoteBuffer(ModuleCovData *data) {
   if (!data->coverage_buffer_remote) return;
   if (!data->has_remote_coverage) return;
 
@@ -303,12 +303,12 @@ void LiteInstCoverage::ClearRemoteBuffer(ModuleCovData *data) {
   free(buf);
 }
 
-void LiteInstCoverage::ClearCoverage(ModuleCovData *data) {
+void LiteCov::ClearCoverage(ModuleCovData *data) {
   data->collected_coverage.clear();
   ClearRemoteBuffer(data);
 }
 
-void LiteInstCoverage::ClearCoverage() {
+void LiteCov::ClearCoverage() {
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++)
   {
@@ -319,7 +319,7 @@ void LiteInstCoverage::ClearCoverage() {
 }
 
 // fetches and decodes coverage from the remote buffer
-void LiteInstCoverage::CollectCoverage(ModuleCovData *data) {
+void LiteCov::CollectCoverage(ModuleCovData *data) {
   if (!data->has_remote_coverage) return;
 
   unsigned char *buf = (unsigned char *)malloc(data->coverage_buffer_next);
@@ -344,7 +344,7 @@ void LiteInstCoverage::CollectCoverage(ModuleCovData *data) {
   ClearRemoteBuffer(data);
 }
 
-void LiteInstCoverage::CollectCoverage() {
+void LiteCov::CollectCoverage() {
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++)
   {
@@ -354,7 +354,7 @@ void LiteInstCoverage::CollectCoverage() {
   }
 }
 
-void LiteInstCoverage::GetCoverage(Coverage &coverage, bool clear_coverage) {
+void LiteCov::GetCoverage(Coverage &coverage, bool clear_coverage) {
   CollectCoverage();
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++)
@@ -379,7 +379,7 @@ void LiteInstCoverage::GetCoverage(Coverage &coverage, bool clear_coverage) {
 }
 
 // sets (new) coverage to ignore
-void LiteInstCoverage::IgnoreCoverage(Coverage &coverage) {
+void LiteCov::IgnoreCoverage(Coverage &coverage) {
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
     ModuleInfo *module = GetModuleByName(iter->module_name);
     if (!module) continue;
@@ -401,7 +401,7 @@ void LiteInstCoverage::IgnoreCoverage(Coverage &coverage) {
 }
 
 // quickly checks if we have new coverage
-bool LiteInstCoverage::HasNewCoverage() {
+bool LiteCov::HasNewCoverage() {
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++)
   {
@@ -413,7 +413,7 @@ bool LiteInstCoverage::HasNewCoverage() {
   return false;
 }
 
-void LiteInstCoverage::OnProcessExit() {
-  LiteInst::OnProcessExit();
+void LiteCov::OnProcessExit() {
+  TinyInst::OnProcessExit();
   CollectCoverage();
 }

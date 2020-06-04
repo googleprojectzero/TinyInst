@@ -23,12 +23,11 @@ limitations under the License.
 #include "windows.h"
 
 #include "common.h"
-#include "liteinst.h"
 #include "litecov.h"
 
 uint8_t *trace_bits;
 
-LiteInstCoverage *instrumentation;
+LiteCov *instrumentation;
 bool persist;
 int num_iterations;
 int cur_iteration;
@@ -125,7 +124,7 @@ void RunTarget(char *cmd, unsigned int pid, uint32_t timeout) {
 
 int main(int argc, char **argv)
 {
-  instrumentation = new LiteInstCoverage();
+  instrumentation = new LiteCov();
   instrumentation->Init(argc, argv);
 
   int target_opt_ind = 0;
