@@ -1,4 +1,4 @@
-# LiteInst
+# TinyInst
 
 ```
 Copyright 2020 Google LLC
@@ -16,25 +16,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-## What is LiteInst?
+## What is TinyInst?
 
-Liteinst is a lightweight dynamic instrumentation library that can be used to instrument only selected module(s) in the process, while leaving the rest of the process to run natively. It is meant to be easy to understand, easy to hack on and easy to hack with. It is not designed to be compatible with all targets (more on that later).
+TinyInst is a lightweight dynamic instrumentation library that can be used to instrument only selected module(s) in the process, while leaving the rest of the process to run natively. It is meant to be easy to understand, easy to hack on and easy to hack with. It is not designed to be compatible with all targets (more on that later).
 
 ### How does it compare to [DynamoRIO](https://dynamorio.org/) and [PIN](https://software.intel.com/en-us/articles/pintool)?
 
-LiteInst is not meant as a replacement for complex instrumentation frameworks such as DynamoRIO and PIN, but rather an alternative for scenarios where a more lightweight solution would do. LiteInst assumes that the target is well-behaved (in the sense explained below) which is not the case for more complex frameworks. Thus, you probably won’t be able to successfully run LiteInst against malware as [was done with DynamoRIO previously](https://www.slideshare.net/MaximShudrak/fuzzing-malware-for-fun-profit-applying-coverageguided-fuzzing-to-find-bugs-in-modern-malware). On the other hand, if a target does not work with other frameworks due to the module that does not need to be instrumented, and the instrumented module is well-behaved, it might work with LiteInst. Because with LiteInst, most of the process will run natively, it will have shorter process startup time, and might outperform other solutions in cases where the target process spends a lot of time in the modules where instrumentation is not needed.
+TinyInst is not meant as a replacement for complex instrumentation frameworks such as DynamoRIO and PIN, but rather an alternative for scenarios where a more lightweight solution would do. TinyInst assumes that the target is well-behaved (in the sense explained below) which is not the case for more complex frameworks. Thus, you probably won’t be able to successfully run TinyInst against malware as [was done with DynamoRIO previously](https://www.slideshare.net/MaximShudrak/fuzzing-malware-for-fun-profit-applying-coverageguided-fuzzing-to-find-bugs-in-modern-malware). On the other hand, if a target does not work with other frameworks due to the module that does not need to be instrumented, and the instrumented module is well-behaved, it might work with TinyInst. Because with TinyInst, most of the process will run natively, it will have shorter process startup time, and might outperform other solutions in cases where the target process spends a lot of time in the modules where instrumentation is not needed.
 
 ### How does it compare to [Mesos](https://github.com/gamozolabs/mesos) and [TrapFuzz](https://github.com/googleprojectzero/p0tools/tree/master/TrapFuzz)?
 
-LiteInst is a full binary rewriting solution, so arbitrary behavior can be changed in the target module. This allows it, for example, to be able to extract edge coverage instead of only basic blocks. Additionally, LiteInst does not depend on other software, such as IDA Pro, to identify basic blocks.
+TinyInst is a full binary rewriting solution, so arbitrary behavior can be changed in the target module. This allows it, for example, to be able to extract edge coverage instead of only basic blocks. Additionally, TinyInst does not depend on other software, such as IDA Pro, to identify basic blocks.
 
-### Which operating system does LiteInst support?
+### Which operating system does TinyInst support?
 
 Currently Windows only (32- and 64-bit). Mac OS support might be considered in the future.
 
-### Which targets are compatible with LiteInst?
+### Which targets are compatible with TinyInst?
 
-LiteInst assumes all instrumented modules are well-behaved in the sense that
+TinyInst assumes all instrumented modules are well-behaved in the sense that
 
 - There is no self-modifying code
 - Return address on the stack is never accessed by the program directly
@@ -43,9 +43,9 @@ OR/AND (depending on the settings)
 
 ### What is the performance overhead?
 
-According to early measurements on image decoding, on a well-behaving 64-bit target with default LiteInst settings, the performance overhead was around 15% without a client and about 20% with the example coverage-collecting client. Note that this does not include the timeout introduced by initially instrumented the modules. See performance tips below for more details.
+According to early measurements on image decoding, on a well-behaving 64-bit target with default TinyInst settings, the performance overhead was around 15% without a client and about 20% with the example coverage-collecting client. Note that this does not include the timeout introduced by initially instrumented the modules. See performance tips below for more details.
 
-## Building LiteInst
+## Building TinyInst
 
 1. Open a command prompt and set up your build environment, e.g. run vcvars64.bat / vcvars32.bat
 
@@ -64,11 +64,11 @@ Note #1: 64-bit build will also run against 32-bit targets
 
 Note #2: Encountering problems creating a 32-bit build on 64-bit windows due to the environment not being properly set up and libraries missing? Open the generated .sln file in Visual Studio and build from there instead of running cmake --build. Also note that 64-bit build is going to work on 32-bit targets, so creating a 32-bit build might not be necessary.
 
-## Using LiteInst
+## Using TinyInst
 
-LiteInst is primarily meant to be used as a library inside other programs.
+TinyInst is primarily meant to be used as a library inside other programs.
 
-A LiteInst client is written as a subclass of the LiteInst class. The client can then override the API methods it needs. The API methods are defined below.
+A TinyInst client is written as a subclass of the TinyInst class. The client can then override the API methods it needs. The API methods are defined below.
 
 After the client is created, it must be initialized with command line options by calling
 
@@ -79,7 +79,7 @@ The command line options are defined below and a client can also define their ow
 `DebuggerStatus Run(char *cmd, uint32_t timeout);`
 `DebuggerStatus Attach(unsigned int pid, uint32_t timeout);`
 
-These functions either run a program (using the specified command line) or attach to an already running program. If no target method is specified, the target will continue running until either the program exits, the program crashes, or the timeout (given in milliseconds) expires. If a target method is defined, LiteInst is going to return whenever the target method is entered and whenever target method returns, allowing the caller to perform additional tasks.
+These functions either run a program (using the specified command line) or attach to an already running program. If no target method is specified, the target will continue running until either the program exits, the program crashes, or the timeout (given in milliseconds) expires. If a target method is defined, TinyInst is going to return whenever the target method is entered and whenever target method returns, allowing the caller to perform additional tasks.
 
 When `Run` and `Attach` return while the target process is still alive, the following functions can be used to either terminate the process or continue execution.
 
@@ -87,7 +87,7 @@ When `Run` and `Attach` return while the target process is still alive, the foll
 
 `DebuggerStatus Continue(uint32_t timeout);`
 
-LiteInst comes with an example coverage binary, which can be invoked using
+TinyInst comes with an example coverage binary, which can be invoked using
 
 `litecov.exe <options> -- <target command line>`
 
@@ -168,7 +168,7 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 ### Target method and persistence
 
-LiteInst allows user to define a target method. If a target method is defined, no code will be instrumented (everything will run natively) until the target method is reached for the first time. Additionally, LiteInst will break execution on the target method entry and exit.
+TinyInst allows user to define a target method. If a target method is defined, no code will be instrumented (everything will run natively) until the target method is reached for the first time. Additionally, TinyInst will break execution on the target method entry and exit.
 
 `-target_module` - module containing the target method
 
@@ -176,7 +176,7 @@ LiteInst allows user to define a target method. If a target method is defined, n
 
 `-target_offset` - use when target method can't be specified by name. Relative address of the target method from the module base
 
-`-loop` - if this flag is specified, LiteInst will run the target method in an infinite loop (or until Kill() is called or process terminates for another reason). Function arguments will be saved and restored between iterations. This is mainly used to force persistence for fuzzing.
+`-loop` - if this flag is specified, TinyInst will run the target method in an infinite loop (or until Kill() is called or process terminates for another reason). Function arguments will be saved and restored between iterations. This is mainly used to force persistence for fuzzing.
 
 `-nargs` - number of target method arguments to save between iterations. To be used together with `-loop`
 
@@ -185,13 +185,13 @@ LiteInst allows user to define a target method. If a target method is defined, n
 
 ## Coverage module
 
-Liteinst comes with an (example) coverage module, `LiteInstCoverage`. The coverage module can collect basic block or edge coverage (controlled using `-covtype` flag).
+TinyInst comes with an (example) coverage module, `LiteInstCoverage`. The coverage module can collect basic block or edge coverage (controlled using `-covtype` flag).
 
 Special feature of the coverage module is that the coverage buffer in the target process is initially allocated as read-only, causing an exception the first time new coverage is encountered. Combined with an option to ignore a certain subset of coverage, this enables quickly querying if running the target with a given input resulted in new coverage or not.
 
-## How LiteInst works?
+## How TinyInst works?
 
-LiteInst is built on top of a custom debugger. The debugger watches the target process for events such as modules being loaded, breakpoint being hit, exceptions being fired etc. The debugger also implements breakpoints and persistence if the target method is specified.
+TinyInst is built on top of a custom debugger. The debugger watches the target process for events such as modules being loaded, breakpoint being hit, exceptions being fired etc. The debugger also implements breakpoints and persistence if the target method is specified.
 
 When a module to be instrumented is loaded, it is initially "instrumented" in the following way
 
@@ -211,7 +211,7 @@ However, while this works, note that it will cause an exception on every indirec
 
 ### Instrumenting indirect calls and jumps
 
-LiteInst can instrument indirect calls and jumps to avoid exceptions on (already-seen) indirect targets. An instrumented call/jump, instead of jumping to the original target, will instead jump to the head of the linked list of stubs. Each stub contains a pair of (original_target, translated_target). It tests if the jump/call target matches original_target, and if so, control flow is directed to translated_target. Otherwise, it jumps to the next stub. If the end of the list is reached, that means the jump/call target hasn’t been seen before. This will cause a breakpoint that is caught by the debugger, which will be resolved by creating another stub and inserting it into the list.
+TinyInst can instrument indirect calls and jumps to avoid exceptions on (already-seen) indirect targets. An instrumented call/jump, instead of jumping to the original target, will instead jump to the head of the linked list of stubs. Each stub contains a pair of (original_target, translated_target). It tests if the jump/call target matches original_target, and if so, control flow is directed to translated_target. Otherwise, it jumps to the next stub. If the end of the list is reached, that means the jump/call target hasn’t been seen before. This will cause a breakpoint that is caught by the debugger, which will be resolved by creating another stub and inserting it into the list.
 
 This mechanism can be implemented in 2 ways
 - per-callsite (local) list
@@ -219,19 +219,19 @@ This mechanism can be implemented in 2 ways
 
 Global hashtable results in better performance. Local (per-callsite list) allows getting correct edges (with correct source address) on indirect calls/jumps.
 
-Note that on modern Windows, due to CFG, all indirect jump/calls happen from the same location, therefore with CFG-compiled binaries, it is impossible (without some kind of special handling) to get accurate edges anyway. This, along with the performance benefit, is the reason why global hashlist is the default method for handling indirect calls/jumps in LiteInst.
+Note that on modern Windows, due to CFG, all indirect jump/calls happen from the same location, therefore with CFG-compiled binaries, it is impossible (without some kind of special handling) to get accurate edges anyway. This, along with the performance benefit, is the reason why global hashlist is the default method for handling indirect calls/jumps in TinyInst.
 
 ### Return address patching
 
-By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding in the exception handling (SEH) on 64-bit Windows. Therefore, targets that need to catch exceptions won’t work correctly with LiteInst by default.
+By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding in the exception handling (SEH) on 64-bit Windows. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
 
-At this time, LiteInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note that, without additional instrumentation, this causes an exception on every return (causing a massive slowdown). However, with `-patch_return_addresses`, return instructions also get instrumented similarly to indirect jumps/calls. While this resolves returns happening within a module, note that all returns from a non-instrumented into an instrumented module will still cause exceptions.
+At this time, TinyInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note that, without additional instrumentation, this causes an exception on every return (causing a massive slowdown). However, with `-patch_return_addresses`, return instructions also get instrumented similarly to indirect jumps/calls. While this resolves returns happening within a module, note that all returns from a non-instrumented into an instrumented module will still cause exceptions.
 
 Since this is a fairly common case, more performant options for supporting exception handling in Windows will be investigated in the future. This can be accomplished using RtlAddFunctionTable / RtlAddGrowableFunctionTable / RtlInstallFunctionTableCallback APIs.
 
 ## Performance tips
 
-The biggest overhead in LiteInst comes from an exception being thrown whenever an instrumented module is entered from a non-instrumented module. You can see these exceptions being triggered using the `-trace_module_entries` flag. Indirect jump/call instrumentation should be used whenever possible and return instrumentation should not be used whenever possible. LiteInst performs best on modules (or module groups) that are reasonably self-contained. For example if you have two modules, A and B, where A calls B often but only B is instrumented, this will cause a lot of slowdown. Better performance could be achieved by instrumenting both A and B.
+The biggest overhead in TinyInst comes from an exception being thrown whenever an instrumented module is entered from a non-instrumented module. You can see these exceptions being triggered using the `-trace_module_entries` flag. Indirect jump/call instrumentation should be used whenever possible and return instrumentation should not be used whenever possible. TinyInst performs best on modules (or module groups) that are reasonably self-contained. For example if you have two modules, A and B, where A calls B often but only B is instrumented, this will cause a lot of slowdown. Better performance could be achieved by instrumenting both A and B.
 
 ## Debugging tips
 
