@@ -37,7 +37,7 @@ Currently Windows only (32- and 64-bit). Mac OS support might be considered in t
 LiteInst assumes all instrumented modules are well-behaved in the sense that
 
 - There is no self-modifying code
- - Return address on the stack is never accessed by the program directly
+- Return address on the stack is never accessed by the program directly
 OR/AND (depending on the settings)
 - No data is ever stored before the top of the stack (on addresses lower than pointed to by ESP/RSP). This condition can be relaxed into "no data before (ESP/RSP - arbitrary_offset)" using the `-sp_offset` flag.
 
