@@ -100,7 +100,7 @@ These callbacks are for information only and the client should not emit any inst
 `OnProcessCreated`
 Called when the target process is created or attached.
 
-`OnProcessCreated`
+`OnProcessExit`
 Called when the target process exits.
 
 `OnProcessEntrypoint`
