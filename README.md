@@ -91,6 +91,10 @@ TinyInst comes with an example coverage binary, which can be invoked using
 
 `litecov.exe <options> -- <target command line>`
 
+Example:
+
+`litecov.exe -instrument_module notepad.exe -coverage_file coverage.txt -- notepad.exe`
+
 ## Instrumentation API
 
 ### Debugger event callbacks 
@@ -120,7 +124,7 @@ Called when an exception is encountered. The client must either return true (if 
 
 ### Instrumentation callbacks
 
-During these callbacks, the client can add code to the target by calling `WriteCode()`. 
+During these callbacks, the client can add code to the target by calling `WriteCode()`. Note that the client is responsible for saving and restoring any context (such as registers and flags clobbered in the inserted code).
 
 `OnBasicBlock`
 Can be used to insert code that's going to run on a particular basic block
