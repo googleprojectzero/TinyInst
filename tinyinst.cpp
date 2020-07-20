@@ -138,7 +138,7 @@ TinyInst::ModuleInfo::ModuleInfo() {
   mapping = NULL;
 }
 
-void TinyInst::ModuleInfo::ClearInstrumentation(HANDLE child_handle) {
+void TinyInst::ModuleInfo::ClearInstrumentation() {
   instrumented = false;
 
   for (auto iter = executable_ranges.begin(); iter != executable_ranges.end(); iter++) {
@@ -147,10 +147,7 @@ void TinyInst::ModuleInfo::ClearInstrumentation(HANDLE child_handle) {
   executable_ranges.clear();
   code_size = 0;
 
-  if (instrumented_code_local)
-    VirtualFree(instrumented_code_local, 0, MEM_RELEASE);
-  if (child_handle && instrumented_code_remote)
-    VirtualFreeEx(child_handle, instrumented_code_remote, 0, MEM_RELEASE);
+  if (instrumented_code_local) free(instrumented_code_local);
 
   instrumented_code_local = NULL;
   instrumented_code_remote = NULL;
@@ -263,15 +260,9 @@ void TinyInst::InitGlobalJumptable(ModuleInfo *module) {
 void TinyInst::CommitCode(ModuleInfo *module, size_t start_offset, size_t size) {
   if (!module->instrumented_code_remote) return;
 
-  SIZE_T size_written;
-  if (!WriteProcessMemory(
-    child_handle, 
-    module->instrumented_code_remote + start_offset, 
-    module->instrumented_code_local + start_offset, 
-    size, 
-    &size_written)) {
-      FATAL("Error writing target memory\n");
-  }
+  RemoteWrite(module->instrumented_code_remote + start_offset,
+              module->instrumented_code_local + start_offset,
+              size);
 }
 
 // Checks if there is sufficient space and writes code at the current offset
@@ -491,7 +482,7 @@ void TinyInst::MovIndirectTarget(ModuleInfo *module,
 }
 
 // various breapoints
-bool TinyInst::HandleBreakpoint(void *address, DWORD thread_id) {
+bool TinyInst::HandleBreakpoint(void *address) {
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return false;
 
@@ -510,7 +501,7 @@ bool TinyInst::HandleBreakpoint(void *address, DWORD thread_id) {
   }
 
   // indirect jump new target
-  if (HandleIndirectJMPBreakpoint(address, thread_id)) return true;
+  if (HandleIndirectJMPBreakpoint(address)) return true;
 
   // invalid instruction
   if (module->invalid_instructions.find((size_t)address) != module->invalid_instructions.end()) {
@@ -526,7 +517,7 @@ bool TinyInst::HandleBreakpoint(void *address, DWORD thread_id) {
 // handles a breakpoint that occurs
 // when an indirect jump or call wants to go to a previously
 // unseen target
-bool TinyInst::HandleIndirectJMPBreakpoint(void *address, DWORD thread_id) {
+bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
   if (indirect_instrumentation_mode == II_NONE) return false;
 
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
@@ -553,16 +544,7 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address, DWORD thread_id) {
 
   if (!is_indirect_breakpoint) return false;
 
-  CONTEXT lcContext;
-  lcContext.ContextFlags = CONTEXT_ALL;
-  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
-  GetThreadContext(thread_handle, &lcContext);
-
-#ifdef _WIN64
-  size_t original_address = lcContext.Rax;
-#else
-  size_t original_address = lcContext.Eax;
-#endif
+  size_t original_address = GetRegister(RAX);
 
   // if it's a global indirect, list head must be calculated from target
   // otherwise it's a per-callsite indirect and the list head was set earlier
@@ -594,14 +576,7 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address, DWORD thread_id) {
                                           global_indirect);
 
   // redirect execution to just created entry which should handle it immediately
-#ifdef _WIN64
-  lcContext.Rip = (size_t)module->instrumented_code_remote + entry_offset;
-#else
-  lcContext.Eip = (size_t)module->instrumented_code_remote + entry_offset;
-#endif
-
-  SetThreadContext(thread_handle, &lcContext);
-  CloseHandle(thread_handle);
+  SetRegister(RIP, (size_t)module->instrumented_code_remote + entry_offset);
 
   return true;
 }
@@ -1556,13 +1531,13 @@ TinyInst::ModuleInfo *TinyInst::GetModuleFromInstrumented(size_t address) {
   return NULL;
 }
 
-void TinyInst::OnCrashed(EXCEPTION_RECORD *exception_record) {
-  char *address = (char *)exception_record->ExceptionAddress;
+void TinyInst::OnCrashed(Exception *exception_record) {
+  char *address = (char *)exception_record->ip;
 
   printf("Exception at address %p\n", address);
-  if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-    printf("Access type: %d\n", (int)exception_record->ExceptionInformation[0]);
-    printf("Access address: %zx\n", exception_record->ExceptionInformation[1]);
+  if (exception_record->type == ACCESS_VIOLATION) {
+    // printf("Access type: %d\n", (int)exception_record->ExceptionInformation[0]);
+    printf("Access address: %p\n", exception_record->access_address);
   }
 
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
@@ -1619,7 +1594,7 @@ size_t TinyInst::GetTranslatedAddress(size_t address) {
 
 // checks if address falls into one of the instrumented modules
 // and if so, redirects execution to the translated code
-bool TinyInst::TryExecuteInstrumented(char *address, DWORD thread_id) {
+bool TinyInst::TryExecuteInstrumented(char *address) {
   ModuleInfo *module = GetModule((size_t)address);
 
   if (!module) return false;
@@ -1632,141 +1607,19 @@ bool TinyInst::TryExecuteInstrumented(char *address, DWORD thread_id) {
   size_t translated_address = GetTranslatedAddress(module, (size_t)address);
   OnModuleEntered(module, (size_t)address);
 
-  CONTEXT lcContext;
-  lcContext.ContextFlags = CONTEXT_ALL;
-  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
-  GetThreadContext(thread_handle, &lcContext);
-
-  // redirect execution to translated code
-#ifdef _WIN64
-  lcContext.Rip = translated_address;
-#else
-  lcContext.Eip = translated_address;
-#endif
-
-  SetThreadContext(thread_handle, &lcContext);
-  CloseHandle(thread_handle);
+  SetRegister(RIP, translated_address);
 
   return true;
-}
-
-// detects executable memory regions in the module
-// makes them non-executable
-// and copies code out into this process
-void TinyInst::ExtractCodeRanges(ModuleInfo *module) {
-  LPCVOID end_address = (char *)module->base + module->size;
-  LPCVOID cur_address = module->base;
-  MEMORY_BASIC_INFORMATION meminfobuf;
-
-  AddressRange newRange;
-
-  // TODO: do we need to redo this if module was loaded before
-  for (auto iter = module->executable_ranges.begin();
-       iter != module->executable_ranges.end(); iter++)
-  {
-    free(iter->data);
-  }
-  module->executable_ranges.clear();
-  module->code_size = 0;
-
-  while (cur_address < end_address) {
-    size_t ret = VirtualQueryEx(child_handle,
-                                cur_address,
-                                &meminfobuf,
-                                sizeof(MEMORY_BASIC_INFORMATION));
-    if (!ret) break;
-
-    if (meminfobuf.Protect & 0xF0) {
-      // printf("%p, %llx, %lx\n", meminfobuf.BaseAddress, meminfobuf.RegionSize, meminfobuf.Protect);
-
-      SIZE_T size_read;
-      newRange.data = (char *)malloc(meminfobuf.RegionSize);
-      if (!ReadProcessMemory(child_handle,
-                             meminfobuf.BaseAddress,
-                             newRange.data,
-                             meminfobuf.RegionSize,
-                             &size_read))
-      {
-        FATAL("Error in ReadProcessMemory");
-      }
-      if (size_read != meminfobuf.RegionSize) {
-        FATAL("Error in ReadProcessMemory");
-      }
-
-      uint8_t low = meminfobuf.Protect & 0xFF;
-      low = low >> 4;
-      DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
-      DWORD oldProtect;
-      if (!VirtualProtectEx(child_handle,
-                            meminfobuf.BaseAddress,
-                            meminfobuf.RegionSize,
-                            newProtect,
-                            &oldProtect))
-      {
-        FATAL("Error in VirtualProtectEx");
-      }
-
-      newRange.from = (size_t)meminfobuf.BaseAddress;
-      newRange.to = (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize;
-      module->executable_ranges.push_back(newRange);
-
-      module->code_size += newRange.to - newRange.from;
-    }
-
-    cur_address = (char *)meminfobuf.BaseAddress + meminfobuf.RegionSize;
-  }
-}
-
-// sets all pages containing (previously detected)
-// code to non-executable
-void TinyInst::ProtectCodeRanges(ModuleInfo *module) {
-  MEMORY_BASIC_INFORMATION meminfobuf;
-
-  for (auto iter = module->executable_ranges.begin();
-       iter != module->executable_ranges.end(); iter++)
-  {
-    size_t ret = VirtualQueryEx(child_handle,
-                                (void *)iter->from,
-                                &meminfobuf,
-                                sizeof(MEMORY_BASIC_INFORMATION));
-
-    // if the module was already instrumented, everything must be the same as before
-    if (!ret) {
-      FATAL("Error in ProtectCodeRanges."
-            "Target incompatible with persist_instrumentation_data");
-    }
-    if (iter->from != (size_t)meminfobuf.BaseAddress) {
-      FATAL("Error in ProtectCodeRanges."
-        "Target incompatible with persist_instrumentation_data");
-    }
-    if (iter->to != (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize) {
-      FATAL("Error in ProtectCodeRanges."
-        "Target incompatible with persist_instrumentation_data");
-    }
-    if (!(meminfobuf.Protect & 0xF0)) {
-      FATAL("Error in ProtectCodeRanges."
-        "Target incompatible with persist_instrumentation_data");
-    }
-
-    uint8_t low = meminfobuf.Protect & 0xFF;
-    low = low >> 4;
-    DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
-    DWORD oldProtect;
-    if (!VirtualProtectEx(child_handle,
-                          meminfobuf.BaseAddress,
-                          meminfobuf.RegionSize,
-                          newProtect,
-                          &oldProtect))
-    {
-      FATAL("Error in VirtualProtectEx");
-    }
-  }
 }
 
 // clears all instrumentation data from module locally
 // and if clear_remote_data is set, also in the remote process 
 void TinyInst::ClearInstrumentation(ModuleInfo *module) {
-  module->ClearInstrumentation(child_handle);
+  if (module->instrumented_code_remote) {
+    RemoteFree(module->instrumented_code_remote);
+    module->instrumented_code_remote = NULL;
+  }
+  module->ClearInstrumentation();
   OnModuleUninstrumented(module);
   ClearCrossModuleLinks(module);
 }
@@ -1776,7 +1629,7 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   // if the module was previously instrumented
   // just reuse the same data
   if (persist_instrumentation_data && module->instrumented) {
-    ProtectCodeRanges(module);
+    ProtectCodeRanges(&module->executable_ranges);
     FixCrossModuleLinks(module);
     printf("Module %s already instrumented, "
            "reusing instrumentation data\n",
@@ -1784,24 +1637,12 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     return;
   }
 
-  ExtractCodeRanges(module);
+  ExtractCodeRanges(module->base,
+                    module->size,
+                    &module->executable_ranges,
+                    &module->code_size);
 
   // allocate buffer for instrumented code
-
-  // Alternative, but requires Windows 10
-  /* module->instrumented_code_size = module->code_size * 2;
-  module->mapping = CreateFileMapping(
-    INVALID_HANDLE_VALUE,
-    NULL,
-    PAGE_EXECUTE_READWRITE,
-    0,
-    module->instrumented_code_size,
-    NULL);
-  if (!module->mapping) {
-    FATAL("CreateFileMapping error\n");
-  }
-  MapViewOfFile2(...); */
-
   module->instrumented_code_size = module->code_size * CODE_SIZE_MULTIPLIER;
   if ((indirect_instrumentation_mode == II_GLOBAL) ||
       (indirect_instrumentation_mode == II_AUTO))
@@ -1811,10 +1652,7 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
 
   module->instrumented_code_allocated = 0;
   module->instrumented_code_local =
-    (char *)VirtualAlloc(NULL,
-                         module->instrumented_code_size,
-                         MEM_COMMIT | MEM_RESERVE,
-                         PAGE_READWRITE);
+    (char *)malloc(module->instrumented_code_size);
   if (!module->instrumented_code_local) {
     FATAL("Error allocating local code buffer\n");
   }
@@ -1834,7 +1672,7 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     (char *)RemoteAllocateBefore(min_code,
                                  max_code,
                                  module->instrumented_code_size,
-                                 PAGE_EXECUTE_READ);
+                                 READEXECUTE);
 
   if (!module->instrumented_code_remote) {
     // TODO also try allocating after the module
@@ -1854,59 +1692,6 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
          module->module_name, module->code_size);
 
   OnModuleInstrumented(module);
-}
-
-// allocates memory in target process as close as possible
-// to max_address, but at address larger than min_address
-void *TinyInst::RemoteAllocateBefore(uint64_t min_address,
-                                     uint64_t max_address,
-                                     size_t size,
-                                     DWORD protection_flags)
-{
-  MEMORY_BASIC_INFORMATION meminfobuf;
-  void *ret_address = NULL;
-
-  uint64_t cur_code = max_address;
-  while (cur_code > min_address) {
-    // Don't attempt allocating on the null page
-    if (cur_code < 0x1000) break;
-
-    size_t step = size;
-
-    size_t query_ret = VirtualQueryEx(child_handle,
-                                      (LPCVOID)cur_code,
-                                      &meminfobuf,
-                                      sizeof(MEMORY_BASIC_INFORMATION));
-    if (!query_ret) break;
-
-    if (meminfobuf.State == MEM_FREE) {
-      if (meminfobuf.RegionSize >= size) {
-        size_t address = (size_t)meminfobuf.BaseAddress +
-                         (meminfobuf.RegionSize - size);
-        ret_address = VirtualAllocEx(child_handle,
-                                     (LPVOID)address,
-                                     size,
-                                     MEM_COMMIT | MEM_RESERVE,
-                                     protection_flags);
-        if (ret_address) {
-          if (((size_t)ret_address >= min_address) &&
-            ((size_t)ret_address <= max_address)) {
-            return ret_address;
-          } else {
-            return NULL;
-          }
-        }
-      } else {
-        step = size - meminfobuf.RegionSize;
-      }
-    }
-
-    cur_code = (size_t)meminfobuf.BaseAddress;
-    if (cur_code < step) break;
-    else cur_code -= step;
-  }
-
-  return ret_address;
 }
 
 // walks the list of modules and instruments
@@ -1935,7 +1720,7 @@ TinyInst::ModuleInfo *TinyInst::IsInstrumentModule(char *module_name) {
   return NULL;
 }
 
-void TinyInst::OnInstrumentModuleLoaded(HMODULE module, ModuleInfo *target_module) {
+void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module) {
   if (target_module->instrumented &&
       target_module->base &&
       (target_module->base != (void *)module))
@@ -1957,7 +1742,7 @@ void TinyInst::OnInstrumentModuleLoaded(HMODULE module, ModuleInfo *target_modul
 }
 
 // called when a potentialy interesting module gets loaded
-void TinyInst::OnModuleLoaded(HMODULE module, char *module_name) {
+void TinyInst::OnModuleLoaded(void *module, char *module_name) {
   Debugger::OnModuleLoaded(module, module_name);
 
   ModuleInfo *instrument_module = IsInstrumentModule(module_name);
@@ -1967,7 +1752,7 @@ void TinyInst::OnModuleLoaded(HMODULE module, char *module_name) {
 }
 
 // called when a potentialy interesting module gets loaded
-void TinyInst::OnModuleUnloaded(HMODULE module) {
+void TinyInst::OnModuleUnloaded(void *module) {
   Debugger::OnModuleUnloaded(module);
 
   for (auto iter = instrumented_modules.begin();
@@ -1984,8 +1769,8 @@ void TinyInst::OnModuleUnloaded(HMODULE module) {
   }
 }
 
-void TinyInst::OnTargetMethodReached(DWORD thread_id) {
-  Debugger::OnTargetMethodReached(thread_id);
+void TinyInst::OnTargetMethodReached() {
+  Debugger::OnTargetMethodReached();
 
   if (target_function_defined) InstrumentAllLoadedModules();
 }
@@ -1997,18 +1782,17 @@ void TinyInst::OnEntrypoint() {
 }
 
 
-bool TinyInst::OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) {
-  switch (exception_record->ExceptionCode)
+bool TinyInst::OnException(Exception *exception_record) {
+  switch (exception_record->type)
   {
-  case EXCEPTION_BREAKPOINT:
-  case 0x4000001f: //STATUS_WX86_BREAKPOINT
-    if (HandleBreakpoint(exception_record->ExceptionAddress, thread_id)) {
+  case BREAKPOINT:
+    if (HandleBreakpoint(exception_record->ip)) {
       return true;
     }
-  case EXCEPTION_ACCESS_VIOLATION:
-    if (exception_record->ExceptionInformation[0] == 8) {
+  case ACCESS_VIOLATION:
+    if (exception_record->maybe_execute_violation) {
       // possibly we are trying to executed code in an instrumented module
-      if (TryExecuteInstrumented((char *)exception_record->ExceptionInformation[1], thread_id)) {
+      if (TryExecuteInstrumented((char *)exception_record->access_address)) {
         return true;
       }
     }
@@ -2019,8 +1803,8 @@ bool TinyInst::OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) 
   return false;
 }
 
-void TinyInst::OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) {
-  Debugger::OnProcessCreated(info);
+void TinyInst::OnProcessCreated() {
+  Debugger::OnProcessCreated();
 
   if (child_ptr_size == 8) {
     xed_mmode = XED_MACHINE_MODE_LONG_64;
@@ -2038,7 +1822,7 @@ void TinyInst::OnProcessExit() {
   {
     ModuleInfo *cur_module = *iter;
     cur_module->loaded = false;
-    cur_module->ClearInstrumentation(NULL);
+    cur_module->ClearInstrumentation();
   }
   // clear cross-module links
   ClearCrossModuleLinks();

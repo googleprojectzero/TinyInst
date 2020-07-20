@@ -49,6 +49,446 @@ void Debugger::DeleteBreakpoints() {
   breakpoints.clear();
 }
 
+void Debugger::CreateException(EXCEPTION_RECORD *win_exception_record,
+                               Exception *exception)
+{
+  switch (win_exception_record->ExceptionCode) {
+  case EXCEPTION_BREAKPOINT:
+  case 0x4000001f:
+    exception->type = BREAKPOINT;
+    break;
+  case EXCEPTION_ACCESS_VIOLATION:
+    exception->type = ACCESS_VIOLATION;
+    break;
+  case EXCEPTION_ILLEGAL_INSTRUCTION:
+    exception->type = ILLEGAL_INSTRUCTION;
+    break;
+  default:
+    exception->type = OTHER;
+    break;
+  }
+
+  exception->ip = win_exception_record->ExceptionAddress;
+
+  exception->maybe_execute_violation = false;
+  exception->maybe_write_violation = false;
+  exception->access_address = 0;
+  if (win_exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+    if (win_exception_record->ExceptionInformation[0] == 8) {
+      exception->maybe_execute_violation = true;
+    }
+    if (win_exception_record->ExceptionInformation[0] == 1) {
+      exception->maybe_write_violation = true;
+    }
+
+    exception->access_address = (void *)(win_exception_record->ExceptionInformation[1]);
+  }
+}
+
+
+void Debugger::RetrieveThreadContext() {
+  if (have_thread_context) return; // already done
+  lcContext.ContextFlags = CONTEXT_ALL;
+  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
+  GetThreadContext(thread_handle, &lcContext);
+  CloseHandle(thread_handle);
+}
+
+size_t Debugger::GetRegister(Register r) {
+  RetrieveThreadContext();
+
+#ifdef _WIN64
+
+  switch (r) {
+  case RAX:
+    return lcContext.Rax;
+  case RCX:
+    return lcContext.Rcx;
+  case RDX:
+    return lcContext.Rdx;
+  case RBX:
+    return lcContext.Rbx;
+  case RSP:
+    return lcContext.Rsp;
+  case RBP:
+    return lcContext.Rbp;
+  case RSI:
+    return lcContext.Rsi;
+  case RDI:
+    return lcContext.Rdi;
+  case R8:
+    return lcContext.R8;
+  case R9:
+    return lcContext.R9;
+  case R10:
+    return lcContext.R10;
+  case R11:
+    return lcContext.R11;
+  case R12:
+    return lcContext.R12;
+  case R13:
+    return lcContext.R13;
+  case R14:
+    return lcContext.R14;
+  case R15:
+    return lcContext.R15;
+  case RIP:
+    return lcContext.Rip;
+  default:
+    FATAL("Unimplemented");
+  }
+
+#else
+
+  switch (r) {
+  case RAX:
+    return lcContext.Eax;
+  case RCX:
+    return lcContext.Ecx;
+  case RDX:
+    return lcContext.Edx;
+  case RBX:
+    return lcContext.Ebx;
+  case RSP:
+    return lcContext.Esp;
+  case RBP:
+    return lcContext.Ebp;
+  case RSI:
+    return lcContext.Esi;
+  case RDI:
+    return lcContext.Edi;
+  case RIP:
+    return lcContext.Eip;
+  default:
+    FATAL("Unimplemented");
+}
+
+#endif
+
+}
+
+void Debugger::SetRegister(Register r, size_t value) {
+  RetrieveThreadContext();
+
+#ifdef _WIN64
+
+  switch (r) {
+  case RAX:
+    lcContext.Rax = value;
+    break;
+  case RCX:
+    lcContext.Rcx = value;
+    break;
+  case RDX:
+    lcContext.Rdx = value;
+    break;
+  case RBX:
+    lcContext.Rbx = value;
+    break;
+  case RSP:
+    lcContext.Rsp = value;
+    break;
+  case RBP:
+    lcContext.Rbp = value;
+    break;
+  case RSI:
+    lcContext.Rsi = value;
+    break;
+  case RDI:
+    lcContext.Rdi = value;
+    break;
+  case R8:
+    lcContext.R8 = value;
+    break;
+  case R9:
+    lcContext.R9 = value;
+    break;
+  case R10:
+    lcContext.R10 = value;
+    break;
+  case R11:
+    lcContext.R11 = value;
+    break;
+  case R12:
+    lcContext.R12 = value;
+    break;
+  case R13:
+    lcContext.R13 = value;
+    break;
+  case R14:
+    lcContext.R14 = value;
+    break;
+  case R15:
+    lcContext.R15 = value;
+    break;
+  case RIP:
+    lcContext.Rip = value;
+    break;
+  default:
+    FATAL("Unimplemented");
+  }
+
+#else
+
+  switch (r) {
+  case RAX:
+    lcContext.Eax = value;
+    break;
+  case RCX:
+    lcContext.Ecx = value;
+    break;
+  case RDX:
+    lcContext.Edx = value;
+    break;
+  case RBX:
+    lcContext.Ebx = value;
+    break;
+  case RSP:
+    lcContext.Esp = value;
+    break;
+  case RBP:
+    lcContext.Ebp = value;
+    break;
+  case RSI:
+    lcContext.Esi = value;
+    break;
+  case RDI:
+    lcContext.Edi = value;
+    break;
+  case RIP:
+    lcContext.Eip = value;
+    break;
+  default:
+    FATAL("Unimplemented");
+  }
+
+#endif
+
+  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
+  SetThreadContext(thread_handle, &lcContext);
+  CloseHandle(thread_handle);
+}
+
+
+// converts between MemoryProtection and Windows protection flags
+DWORD Debugger::WindowsProtectionFlags(MemoryProtection protection) {
+  switch (protection) {
+  case READONLY:
+    return PAGE_READONLY;
+  case READWRITE:
+    return PAGE_READWRITE;
+  case READEXECUTE:
+    return PAGE_EXECUTE_READ;
+  case READWRITEEXECUTE:
+    return PAGE_EXECUTE_READWRITE;
+  default:
+    FATAL("Unumplemented memory protection");
+  }
+}
+
+// allocates memory in target process as close as possible
+// to max_address, but at address larger than min_address
+void *Debugger::RemoteAllocateBefore(uint64_t min_address,
+  uint64_t max_address,
+  size_t size,
+  MemoryProtection protection)
+{
+  DWORD protection_flags = WindowsProtectionFlags(protection);
+
+  MEMORY_BASIC_INFORMATION meminfobuf;
+  void *ret_address = NULL;
+
+  uint64_t cur_code = max_address;
+  while (cur_code > min_address) {
+    // Don't attempt allocating on the null page
+    if (cur_code < 0x1000) break;
+
+    size_t step = size;
+
+    size_t query_ret = VirtualQueryEx(child_handle,
+      (LPCVOID)cur_code,
+      &meminfobuf,
+      sizeof(MEMORY_BASIC_INFORMATION));
+    if (!query_ret) break;
+
+    if (meminfobuf.State == MEM_FREE) {
+      if (meminfobuf.RegionSize >= size) {
+        size_t address = (size_t)meminfobuf.BaseAddress +
+          (meminfobuf.RegionSize - size);
+        ret_address = VirtualAllocEx(child_handle,
+          (LPVOID)address,
+          size,
+          MEM_COMMIT | MEM_RESERVE,
+          protection_flags);
+        if (ret_address) {
+          if (((size_t)ret_address >= min_address) &&
+            ((size_t)ret_address <= max_address)) {
+            return ret_address;
+          } else {
+            return NULL;
+          }
+        }
+      } else {
+        step = size - meminfobuf.RegionSize;
+      }
+    }
+
+    cur_code = (size_t)meminfobuf.BaseAddress;
+    if (cur_code < step) break;
+    else cur_code -= step;
+  }
+
+  return ret_address;
+}
+
+void Debugger::RemoteFree(void *address) {
+  if (!child_handle) return;
+  VirtualFreeEx(child_handle, address, 0, MEM_RELEASE);
+}
+
+void Debugger::RemoteWrite(void *address, void *buffer, size_t size) {
+  SIZE_T size_written;
+  if (!WriteProcessMemory(
+    child_handle,
+    address,
+    buffer,
+    size,
+    &size_written)) {
+    FATAL("Error writing target memory\n");
+  }
+}
+
+void Debugger::RemoteProtect(void *address, size_t size, MemoryProtection protect) {
+  DWORD protection_flags = WindowsProtectionFlags(protect);
+  DWORD old_protect;
+
+  if (!VirtualProtectEx(child_handle,
+    address,
+    size,
+    protection_flags,
+    &old_protect))
+  {
+    FATAL("Could not apply memory protection");
+  }
+}
+
+
+// detects executable memory regions in the module
+// makes them non-executable
+// and copies code out into this process
+void Debugger::ExtractCodeRanges(void *module_base,
+                                 size_t module_size,
+                                 std::list<AddressRange> *executable_ranges,
+                                 size_t *code_size)
+{
+  LPCVOID end_address = (char *)module_base + module_size;
+  LPCVOID cur_address = module_base;
+  MEMORY_BASIC_INFORMATION meminfobuf;
+
+  AddressRange newRange;
+
+  for (auto iter = executable_ranges->begin();
+    iter != executable_ranges->end(); iter++)
+  {
+    free(iter->data);
+  }
+  executable_ranges->clear();
+  *code_size = 0;
+
+  while (cur_address < end_address) {
+    size_t ret = VirtualQueryEx(child_handle,
+      cur_address,
+      &meminfobuf,
+      sizeof(MEMORY_BASIC_INFORMATION));
+    if (!ret) break;
+
+    if (meminfobuf.Protect & 0xF0) {
+      // printf("%p, %llx, %lx\n", meminfobuf.BaseAddress, meminfobuf.RegionSize, meminfobuf.Protect);
+
+      SIZE_T size_read;
+      newRange.data = (char *)malloc(meminfobuf.RegionSize);
+      if (!ReadProcessMemory(child_handle,
+        meminfobuf.BaseAddress,
+        newRange.data,
+        meminfobuf.RegionSize,
+        &size_read))
+      {
+        FATAL("Error in ReadProcessMemory");
+      }
+      if (size_read != meminfobuf.RegionSize) {
+        FATAL("Error in ReadProcessMemory");
+      }
+
+      uint8_t low = meminfobuf.Protect & 0xFF;
+      low = low >> 4;
+      DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
+      DWORD oldProtect;
+      if (!VirtualProtectEx(child_handle,
+        meminfobuf.BaseAddress,
+        meminfobuf.RegionSize,
+        newProtect,
+        &oldProtect))
+      {
+        FATAL("Error in VirtualProtectEx");
+      }
+
+      newRange.from = (size_t)meminfobuf.BaseAddress;
+      newRange.to = (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize;
+      executable_ranges->push_back(newRange);
+
+      *code_size += newRange.to - newRange.from;
+    }
+
+    cur_address = (char *)meminfobuf.BaseAddress + meminfobuf.RegionSize;
+  }
+}
+
+// sets all pages containing (previously detected)
+// code to non-executable
+void Debugger::ProtectCodeRanges(std::list<AddressRange> *executable_ranges) {
+  MEMORY_BASIC_INFORMATION meminfobuf;
+
+  for (auto iter = executable_ranges->begin();
+    iter != executable_ranges->end(); iter++)
+  {
+    size_t ret = VirtualQueryEx(child_handle,
+      (void *)iter->from,
+      &meminfobuf,
+      sizeof(MEMORY_BASIC_INFORMATION));
+
+    // if the module was already instrumented, everything must be the same as before
+    if (!ret) {
+      FATAL("Error in ProtectCodeRanges."
+        "Target incompatible with persist_instrumentation_data");
+    }
+    if (iter->from != (size_t)meminfobuf.BaseAddress) {
+      FATAL("Error in ProtectCodeRanges."
+        "Target incompatible with persist_instrumentation_data");
+    }
+    if (iter->to != (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize) {
+      FATAL("Error in ProtectCodeRanges."
+        "Target incompatible with persist_instrumentation_data");
+    }
+    if (!(meminfobuf.Protect & 0xF0)) {
+      FATAL("Error in ProtectCodeRanges."
+        "Target incompatible with persist_instrumentation_data");
+    }
+
+    uint8_t low = meminfobuf.Protect & 0xFF;
+    low = low >> 4;
+    DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
+    DWORD oldProtect;
+    if (!VirtualProtectEx(child_handle,
+      meminfobuf.BaseAddress,
+      meminfobuf.RegionSize,
+      newProtect,
+      &oldProtect))
+    {
+      FATAL("Error in VirtualProtectEx");
+    }
+  }
+}
+
 // returns an array of handles for all modules loaded in the target process
 DWORD Debugger::GetLoadedModules(HMODULE **modules) {
   DWORD module_handle_storage_size = 1024 * sizeof(HMODULE);
@@ -255,11 +695,11 @@ char *Debugger::GetTargetAddress(HMODULE module) {
 }
 
 // called when a module gets loaded
-void Debugger::OnModuleLoaded(HMODULE module, char *module_name) {
+void Debugger::OnModuleLoaded(void *module, char *module_name) {
   // printf("In on_module_loaded, name: %s, base: %p\n", module_name, module_info.lpBaseOfDll);
 
   if (target_function_defined && _stricmp(module_name, target_module) == 0) {
-    target_address = GetTargetAddress(module);
+    target_address = GetTargetAddress((HMODULE)module);
     if (!target_address) {
       FATAL("Error determining target method address\n");
     }
@@ -269,7 +709,7 @@ void Debugger::OnModuleLoaded(HMODULE module, char *module_name) {
 }
 
 // called when a module gets unloaded
-void Debugger::OnModuleUnloaded(HMODULE module) { }
+void Debugger::OnModuleUnloaded(void *module) { }
 
 // reads numitems entries from stack in remote process
 // from stack_addr
@@ -310,7 +750,7 @@ void Debugger::WriteStack(void *stack_addr, void **buffer, size_t numitems) {
 }
 
 // called when the target method is reached
-void Debugger::HandleTargetReachedInternal(DWORD thread_id) {
+void Debugger::HandleTargetReachedInternal() {
   // printf("in OnTargetMethod\n");
 
   SIZE_T numrw = 0;
@@ -403,12 +843,12 @@ void Debugger::HandleTargetReachedInternal(DWORD thread_id) {
 
   if (!target_reached) {
     target_reached = true;
-    OnTargetMethodReached(thread_id);
+    OnTargetMethodReached();
   }
 }
 
 // called every time the target method returns
-void Debugger::HandleTargetEnded(DWORD thread_id) {
+void Debugger::HandleTargetEnded() {
   // printf("in OnTargetMethodEnded\n");
 
   CONTEXT lcContext;
@@ -522,7 +962,7 @@ void Debugger::OnEntrypoint() {
     GetModuleBaseNameA(child_handle, module_handles[i], (LPSTR)(&base_name), sizeof(base_name));
     if(trace_debug_events)
       printf("Debugger: Loaded module %s at %p\n", base_name, (void *)module_handles[i]);
-    OnModuleLoaded(module_handles[i], base_name);
+    OnModuleLoaded((void *)module_handles[i], base_name);
   }
   if (module_handles) free(module_handles);
 
@@ -532,7 +972,7 @@ void Debugger::OnEntrypoint() {
 }
 
 // called when the debugger hits a breakpoint
-int Debugger::HandleDebuggerBreakpoint(void *address, DWORD thread_id) {
+int Debugger::HandleDebuggerBreakpoint(void *address) {
   int ret = BREAKPOINT_UNKNOWN;
   SIZE_T rwsize = 0;
 
@@ -574,7 +1014,7 @@ int Debugger::HandleDebuggerBreakpoint(void *address, DWORD thread_id) {
     break;
   case BREAKPOINT_TARGET:
     if (trace_debug_events) printf("Target method reached\n");
-    HandleTargetReachedInternal(thread_id);
+    HandleTargetReachedInternal();
     break;
   default:
     break;
@@ -604,13 +1044,15 @@ void Debugger::HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll) {
       printf("Debugger: Loaded module %s at %p\n",
         base_name,
         (void *)LoadDll->lpBaseOfDll);
-    OnModuleLoaded((HMODULE)LoadDll->lpBaseOfDll, base_name);
+    OnModuleLoaded(LoadDll->lpBaseOfDll, base_name);
   }
 }
 
 // called when a process gets created
 // or attached to
-void Debugger::OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) {
+void Debugger::OnProcessCreated() {
+  CREATE_PROCESS_DEBUG_INFO *info = &dbg_debug_event.u.CreateProcessInfo;
+
   if (attach_mode) {
     // assume entrypoint has been reached already
     child_handle = info->hProcess;
@@ -625,9 +1067,10 @@ void Debugger::OnProcessCreated(CREATE_PROCESS_DEBUG_INFO *info) {
 }
 
 // called when an exception in the target occurs
-DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_record,
-                                                 DWORD thread_id)
+DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_record)
 {
+  CreateException(exception_record, &last_exception);
+
   // note: instrumentation could have placed breakpoints
   // on the same addresses as debugger
   // handle one-time debugger breakpoints first
@@ -636,7 +1079,7 @@ DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_rec
   {
     void *address = exception_record->ExceptionAddress;
     // printf("Breakpoint at address %p\n", address);
-    int breakpoint_type = HandleDebuggerBreakpoint(address, thread_id);
+    int breakpoint_type = HandleDebuggerBreakpoint(address);
     if (breakpoint_type == BREAKPOINT_TARGET) {
       return DEBUGGER_TARGET_START;
     } else if (breakpoint_type != BREAKPOINT_UNKNOWN) {
@@ -645,7 +1088,7 @@ DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_rec
   }
 
   // check if cleient can handle it
-  if (OnException(exception_record, thread_id)) {
+  if (OnException(&last_exception)) {
     return DEBUGGER_CONTINUE;
   }
 
@@ -668,7 +1111,7 @@ DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_rec
        ((size_t)exception_record->ExceptionAddress == PERSIST_END_EXCEPTION))
     {
       if (trace_debug_events) printf("Debugger: Persistence method ended\n");
-      HandleTargetEnded(thread_id);
+      HandleTargetEnded();
       return DEBUGGER_TARGET_END;
     } else {
       // Debug(&DebugEv->u.Exception.ExceptionRecord);
@@ -712,6 +1155,7 @@ DebuggerStatus Debugger::DebugLoop()
 
   while (alive)
   {
+    have_thread_context = false;
 
     BOOL wait_ret = WaitForDebugEvent(DebugEv, 100);
 
@@ -732,13 +1176,15 @@ DebuggerStatus Debugger::DebugLoop()
 
     dbg_continue_status = DBG_CONTINUE;
 
+    thread_id = DebugEv->dwThreadId;
+
     // printf("eventCode: %x\n", DebugEv->dwDebugEventCode);
 
     switch (DebugEv->dwDebugEventCode)
     {
     case EXCEPTION_DEBUG_EVENT:
-      ret = HandleExceptionInternal(&DebugEv->u.Exception.ExceptionRecord, DebugEv->dwThreadId);
-      if (ret == DEBUGGER_CRASHED) OnCrashed(&DebugEv->u.Exception.ExceptionRecord);
+      ret = HandleExceptionInternal(&DebugEv->u.Exception.ExceptionRecord);
+      if (ret == DEBUGGER_CRASHED) OnCrashed(&last_exception);
       if (ret != DEBUGGER_CONTINUE) return ret;
       break;
 
@@ -747,7 +1193,7 @@ DebuggerStatus Debugger::DebugLoop()
 
     case CREATE_PROCESS_DEBUG_EVENT: {
       if (trace_debug_events) printf("Debugger: Process created or attached\n");
-      OnProcessCreated(&DebugEv->u.CreateProcessInfo);
+      OnProcessCreated();
       CloseHandle(DebugEv->u.CreateProcessInfo.hFile);
       break;
     }
@@ -770,7 +1216,7 @@ DebuggerStatus Debugger::DebugLoop()
     case UNLOAD_DLL_DEBUG_EVENT:
       if (trace_debug_events)
         printf("Debugger: Unloaded module from %p\n", DebugEv->u.UnloadDll.lpBaseOfDll);
-      OnModuleUnloaded((HMODULE)DebugEv->u.UnloadDll.lpBaseOfDll);
+      OnModuleUnloaded(DebugEv->u.UnloadDll.lpBaseOfDll);
       break;
 
    default:
@@ -868,6 +1314,7 @@ void Debugger::StartProcess(char *cmd) {
   child_thread_handle = pi.hThread;
   child_entrypoint_reached = false;
   target_reached = false;
+  have_thread_context = false;
 
   if (mem_limit || cpu_aff) {
     if (!AssignProcessToJobObject(hJob, child_handle)) {
@@ -919,6 +1366,7 @@ DebuggerStatus Debugger::Kill() {
 
   child_handle = NULL;
   child_thread_handle = NULL;
+  have_thread_context = false;
 
   // delete any breakpoints that weren't hit
   DeleteBreakpoints();
@@ -976,6 +1424,7 @@ DebuggerStatus Debugger::Continue(uint32_t timeout) {
 
 // initializes options from command line
 void Debugger::Init(int argc, char **argv) {
+  have_thread_context = false;
   sinkhole_stds = false;
   mem_limit = 0;
   cpu_aff = 0;

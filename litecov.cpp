@@ -95,7 +95,7 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
     (unsigned char *)RemoteAllocateBefore(min_address,
                                           max_address,
                                           module->instrumented_code_size,
-                                          PAGE_READONLY);
+                                          READONLY);
 
   if (!data->coverage_buffer_remote) {
     FATAL("Could not allocate coverage buffer");
@@ -108,7 +108,7 @@ void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
   CollectCoverage(data);
 
   if (data->coverage_buffer_remote) {
-    VirtualFreeEx(child_handle, data->coverage_buffer_remote, 0, MEM_RELEASE);
+    RemoteFree(data->coverage_buffer_remote);
   }
 
   data->ClearInstrumentationData();
@@ -245,31 +245,26 @@ ModuleCovData *LiteCov::GetDataByRemoteAddress(size_t address) {
 
 // catches writing to the coverage buffer for the first time
 void LiteCov::HandleBufferWriteException(ModuleCovData *data) {
-  DWORD old_protect;
-  if (!VirtualProtectEx(child_handle,
-                        data->coverage_buffer_remote,
-                        data->coverage_buffer_size,
-                        PAGE_READWRITE, &old_protect))
-  {
-    FATAL("Could not make coverage buffer writeable");
-  }
+  RemoteProtect(data->coverage_buffer_remote,
+                data->coverage_buffer_size,
+                READWRITE);
+
   data->has_remote_coverage = true;
 }
 
-bool LiteCov::OnException(
-    EXCEPTION_RECORD *exception_record, DWORD thread_id)
+bool LiteCov::OnException(Exception *exception_record)
 {
-  if ((exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) &&
-    (exception_record->ExceptionInformation[0] == 1)) {
+  if ((exception_record->type == ACCESS_VIOLATION) &&
+    (exception_record->maybe_write_violation)) {
     ModuleCovData *data =
-      GetDataByRemoteAddress(exception_record->ExceptionInformation[1]);
+      GetDataByRemoteAddress((size_t)exception_record->access_address);
     if (data) {
       HandleBufferWriteException(data);
       return true;
     }
   }
 
-  return TinyInst::OnException(exception_record, thread_id);
+  return TinyInst::OnException(exception_record);
 }
 
 void LiteCov::ClearRemoteBuffer(ModuleCovData *data) {
@@ -288,15 +283,9 @@ void LiteCov::ClearRemoteBuffer(ModuleCovData *data) {
     FATAL("Error clearing coverage buffer");
   }
 
-  DWORD old_protect;
-  if (!VirtualProtectEx(child_handle,
-                        data->coverage_buffer_remote,
-                        data->coverage_buffer_size,
-                        PAGE_READONLY,
-                        &old_protect))
-  {
-    FATAL("Could not make coverage buffer readonly");
-  }
+  RemoteProtect(data->coverage_buffer_remote,
+                data->coverage_buffer_size,
+                READONLY);
 
   data->has_remote_coverage = false;
 

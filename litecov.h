@@ -73,7 +73,7 @@ protected:
   virtual void OnProcessExit() override;
 
   virtual void OnModuleEntered(ModuleInfo *module, size_t entry_address) override;
-  virtual bool OnException(EXCEPTION_RECORD *exception_record, DWORD thread_id) override;
+  virtual bool OnException(Exception *exception_record) override;
 
   virtual void InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) override;
   virtual void InstrumentEdge(ModuleInfo *previous_module,
