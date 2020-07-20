@@ -341,6 +341,8 @@ void LiteCov::CollectCoverage(ModuleCovData *data) {
     }
   }
 
+  free(buf);
+
   ClearRemoteBuffer(data);
 }
 
