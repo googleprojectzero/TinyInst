@@ -18,6 +18,7 @@ limitations under the License.
 #define DEBUGGER_H
 
 #include <list>
+#include "windows.h"
 
 enum DebuggerStatus {
   DEBUGGER_NONE,

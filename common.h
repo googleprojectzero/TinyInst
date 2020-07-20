@@ -44,9 +44,9 @@ enum {
 // gets time in milliseconds
 uint64_t GetCurTime(void);
 
-char *GetOption(char *name, int argc, char** argv);
-void GetOptionAll(char *name, int argc, char** argv, std::list<char *> *results);
-bool GetBinaryOption(char *name, int argc, char** argv, bool default_value);
-int GetIntOption(char *name, int argc, char** argv, int default_value);
+char *GetOption(const char *name, int argc, char** argv);
+void GetOptionAll(const char *name, int argc, char** argv, std::list<char *> *results);
+bool GetBinaryOption(const char *name, int argc, char** argv, bool default_value);
+int GetIntOption(const char *name, int argc, char** argv, int default_value);
 
 char *ArgvToCmd(int argc, char** argv);

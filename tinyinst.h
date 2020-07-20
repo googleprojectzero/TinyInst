@@ -225,7 +225,7 @@ private:
                                                            xed_decoded_inst_t *xedd,
                                                            size_t instruction_address);
 
-  void TinyInst::PushReturnAddress(ModuleInfo *module, uint64_t return_address);
+  void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
 
   bool IsRipRelative(ModuleInfo *module,
                      xed_decoded_inst_t *xedd,
