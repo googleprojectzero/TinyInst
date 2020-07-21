@@ -1490,8 +1490,9 @@ TinyInst::ModuleInfo *TinyInst::GetModule(size_t address) {
     if ((address >= (size_t)cur_module->base) &&
         (address < (size_t)cur_module->base + cur_module->size))
     {
-      return cur_module;
-      break;
+      if (GetRegion(cur_module, address)) {
+        return cur_module;
+      }
     }
   }
 
