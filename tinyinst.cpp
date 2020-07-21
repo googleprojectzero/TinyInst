@@ -964,14 +964,17 @@ void TinyInst::FixInstructionAndOutput(ModuleInfo *module,
     return;
   }
 
+  size_t instruction_end_addr;
   int64_t fixed_disp;
+
+  instruction_end_addr = (size_t)module->instrumented_code_remote +
+                         module->instrumented_code_allocated +
+                         original_instruction_size;
 
   // encode an instruction once just to get the instruction size
   // as it needs not be the original size
-  fixed_disp = (int64_t)(mem_address) -
-    (int64_t)((size_t)module->instrumented_code_remote +
-              module->instrumented_code_allocated +
-              original_instruction_size);
+  fixed_disp = (int64_t)(mem_address) - (int64_t)(instruction_end_addr);
+  if (llabs(fixed_disp) > 0x7FFFFFFF) FATAL("Offset larger than 2G");
   xed_encoder_request_set_memory_displacement(xedd, fixed_disp, 4);
   xed_error = xed_encode(xedd, tmp, sizeof(tmp), &olen);
   if (xed_error != XED_ERROR_NONE) {
@@ -985,10 +988,12 @@ void TinyInst::FixInstructionAndOutput(ModuleInfo *module,
     FATAL("Insufficient memory allocated for instrumented code");
   }
 
-  fixed_disp = (int64_t)(mem_address) -
-    (int64_t)((size_t)module->instrumented_code_remote +
-              module->instrumented_code_allocated +
-              out_instruction_size);
+  instruction_end_addr = (size_t)module->instrumented_code_remote +
+                         module->instrumented_code_allocated +
+                         out_instruction_size;
+
+  fixed_disp = (int64_t)(mem_address) - (int64_t)(instruction_end_addr);
+  if (llabs(fixed_disp) > 0x7FFFFFFF) FATAL("Offset larger than 2G");
   xed_encoder_request_set_memory_displacement(xedd, fixed_disp, 4);
   xed_error = xed_encode(xedd, 
     (unsigned char *)(module->instrumented_code_local + module->instrumented_code_allocated),
