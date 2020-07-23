@@ -54,4 +54,9 @@ void CoverageSymmetricDifference(Coverage &coverage1,
                                 Coverage &result);
 bool CoverageContains(Coverage &coverage1, Coverage &coverage2);
 
+void ReadCoverageBinary(Coverage& coverage, char *filename);
+void ReadCoverageBinary(Coverage& coverage, FILE *fp);
+void WriteCoverageBinary(Coverage& coverage, char *filename);
+void WriteCoverageBinary(Coverage& coverage, FILE *fp);
+
 #endif // COVERAGE_H

@@ -175,6 +175,62 @@ void WriteCoverage(Coverage& coverage, char *filename) {
   fclose(fp);
 }
 
+void WriteCoverageBinary(Coverage& coverage, FILE *fp) {
+  uint64_t num_modules = coverage.size();
+  fwrite(&num_modules, sizeof(num_modules), 1, fp);
+  for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
+    fwrite(iter->module_name, sizeof(iter->module_name), 1, fp);
+    uint64_t num_offsets = iter->offsets.size();
+    fwrite(&num_offsets, sizeof(num_offsets), 1, fp);
+    uint64_t *offsets = (uint64_t *)malloc(num_offsets * sizeof(uint64_t));
+    size_t i = 0;
+    for (auto iter2 = iter->offsets.begin(); iter2 != iter->offsets.end(); iter2++) {
+      offsets[i] = *iter2;
+      i++;
+    }
+    fwrite(offsets, sizeof(uint64_t), num_offsets, fp);
+    free(offsets);
+  }
+}
+
+void WriteCoverageBinary(Coverage& coverage, char *filename) {
+  FILE *fp = fopen(filename, "wb");
+  if (!fp) {
+    printf("Error opening %s\n", filename);
+    return;
+  }
+  WriteCoverageBinary(coverage, fp);
+  fclose(fp);
+}
+
+void ReadCoverageBinary(Coverage& coverage, FILE *fp) {
+  uint64_t num_modules;
+  fread(&num_modules, sizeof(num_modules), 1, fp);
+  for (size_t m = 0; m < num_modules; m++) {
+    ModuleCoverage module_coverage;
+    fread(module_coverage.module_name, sizeof(module_coverage.module_name), 1, fp);
+    uint64_t num_offsets;
+    fread(&num_offsets, sizeof(num_offsets), 1, fp);
+    uint64_t *offsets = (uint64_t *)malloc(num_offsets * sizeof(uint64_t));
+    fread(offsets, sizeof(uint64_t), num_offsets, fp);
+    for (size_t i = 0; i < num_offsets; i++) {
+      module_coverage.offsets.insert(offsets[i]);
+    }
+    free(offsets);
+    coverage.push_back(module_coverage);
+  }
+}
+
+void ReadCoverageBinary(Coverage& coverage, char *filename) {
+  FILE *fp = fopen(filename, "rb");
+  if (!fp) {
+    printf("Error opening %s\n", filename);
+    return;
+  }
+  ReadCoverageBinary(coverage, fp);
+  fclose(fp);
+}
+
 void PrintCoverage(Coverage& coverage) {
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
     printf("%s\n", iter->module_name);
