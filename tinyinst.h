@@ -65,8 +65,9 @@ protected:
     void ClearInstrumentation();
 
     char module_name[MAX_PATH];
-    void *base;
-    size_t size;
+    void *module_header;
+    size_t min_address;
+    size_t max_address;
     size_t code_size;
     bool loaded;
     bool instrumented;

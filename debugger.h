@@ -110,8 +110,7 @@ protected:
   void *GetModuleEntrypoint(void *base_address);
   void ReadStack(void *stack_addr, void **buffer, size_t numitems);
   void WriteStack(void *stack_addr, void **buffer, size_t numitems);
-  DWORD GetProcOffset(char *data, char *name);
-  DWORD GetImageSize(void *base_address);
+  void GetImageSize(void *base_address, size_t *min_address, size_t *max_address);
 
   // helper functions
   void *RemoteAllocateBefore(uint64_t min_address,
@@ -120,7 +119,8 @@ protected:
     MemoryProtection protection);
 
   void ExtractCodeRanges(void *module_base,
-                         size_t module_size,
+                         size_t min_address,
+                         size_t max_address,
                          std::list<AddressRange> *executable_ranges,
                          size_t *code_size);
 
@@ -131,6 +131,7 @@ protected:
 
   void RemoteFree(void *address);
   void RemoteWrite(void *address, void *buffer, size_t size);
+  void RemoteRead(void *address, void *buffer, size_t size);
   void RemoteProtect(void *address, size_t size, MemoryProtection protect);
 
   size_t GetRegister(Register r);
@@ -157,10 +158,10 @@ private:
   DWORD GetLoadedModules(HMODULE **modules);
   void DeleteBreakpoints();
   DWORD WindowsProtectionFlags(MemoryProtection protection);
+  DWORD GetImageSize(void *base_address);
+  DWORD GetProcOffset(char *data, char *name);
 
 protected:
-
-  HANDLE child_handle, child_thread_handle;
 
   bool child_entrypoint_reached;
   bool target_reached;
@@ -168,6 +169,7 @@ protected:
   int32_t child_ptr_size = sizeof(void *);
 
 private:
+  HANDLE child_handle, child_thread_handle;
 
   HANDLE devnul_handle = INVALID_HANDLE_VALUE;
 

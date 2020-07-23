@@ -197,7 +197,7 @@ void LiteCov::InstrumentEdge(
 
 // basic block code is just offset from the start of the module
 uint64_t LiteCov::GetBBCode(ModuleInfo *module, size_t bb_address) {
-  return ((uint64_t)bb_address - (uint64_t)module->base);
+  return ((uint64_t)bb_address - (uint64_t)module->min_address);
 }
 
 // edge code has previous offset in higher 32 bits
@@ -208,9 +208,9 @@ uint64_t LiteCov::GetEdgeCode(
     ModuleInfo *module, size_t edge_address1, size_t edge_address2)
 {
   uint64_t offset1 = 0;
-  if (edge_address1) offset1 = ((uint64_t)edge_address1 - (uint64_t)module->base);
+  if (edge_address1) offset1 = ((uint64_t)edge_address1 - (uint64_t)module->min_address);
   uint64_t offset2 = 0;
-  if (edge_address2) offset2 = ((uint64_t)edge_address2 - (uint64_t)module->base);
+  if (edge_address2) offset2 = ((uint64_t)edge_address2 - (uint64_t)module->min_address);
 
   return((offset1 << 32) + (offset2 & 0xFFFFFFFF));
 }
@@ -274,14 +274,7 @@ void LiteCov::ClearRemoteBuffer(ModuleCovData *data) {
   unsigned char *buf = (unsigned char *)malloc(data->coverage_buffer_next);
   memset(buf, 0, data->coverage_buffer_next);
 
-  SIZE_T num_written;
-  if (!WriteProcessMemory(child_handle,
-                          data->coverage_buffer_remote,
-                          buf,
-                          data->coverage_buffer_next,
-                          &num_written)) {
-    FATAL("Error clearing coverage buffer");
-  }
+  RemoteWrite(data->coverage_buffer_remote, buf, data->coverage_buffer_next);
 
   RemoteProtect(data->coverage_buffer_remote,
                 data->coverage_buffer_size,
@@ -313,15 +306,7 @@ void LiteCov::CollectCoverage(ModuleCovData *data) {
 
   unsigned char *buf = (unsigned char *)malloc(data->coverage_buffer_next);
 
-  SIZE_T num_read;
-  if (!ReadProcessMemory(child_handle,
-                         data->coverage_buffer_remote,
-                         buf,
-                         data->coverage_buffer_next,
-                         &num_read))
-  {
-    FATAL("Error reading coverage buffer");
-  }
+  RemoteRead(data->coverage_buffer_remote, buf, data->coverage_buffer_next);
 
   for (size_t i = 0; i < data->coverage_buffer_next; i++) {
     if (buf[i]) {

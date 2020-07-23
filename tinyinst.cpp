@@ -126,9 +126,9 @@ unsigned char CRASH_32[] = { 0xC6, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
 TinyInst::ModuleInfo::ModuleInfo() {
   module_name[0] = 0;
-  base = NULL;
-  size = 0;
-  code_size = 0;
+  module_header = NULL;
+  min_address = 0;
+  max_address = 0;
   loaded = false;
   instrumented = false;
   instrumented_code_local = NULL;
@@ -179,7 +179,7 @@ void TinyInst::FixCrossModuleLink(CrossModuleLink *link) {
   ModuleInfo *module1 = link->module1;
   ModuleInfo *module2 = link->module2;
 
-  size_t original_value = (size_t)module2->base + link->offset2;
+  size_t original_value = (size_t)module2->min_address + link->offset2;
   size_t translated_value = GetTranslatedAddress(module2, original_value);
 
   WritePointerAtOffset(module1, original_value, link->offset1);
@@ -342,7 +342,7 @@ void TinyInst::FixOffsetOrEnqueue(ModuleInfo *module,
 {
   auto iter = module->basic_blocks.find(bb);
   if (iter == module->basic_blocks.end()) {
-    char *address = (char *)module->base + bb;
+    char *address = (char *)module->min_address + bb;
     if (queue->find(address) == queue->end()) {
       queue->insert(address);
     }
@@ -658,7 +658,7 @@ size_t TinyInst::AddTranslatedJump(ModuleInfo *module,
     link.module1 = module;
     link.module2 = target_module;
     link.offset1 = module->instrumented_code_allocated;
-    link.offset2 = original_target - (size_t)target_module->base;
+    link.offset2 = original_target - (size_t)target_module->min_address;
     // printf("Cross module link to %p\n", (void *)original_target);
     cross_module_links.push_back(link);
   }
@@ -1031,7 +1031,7 @@ void TinyInst::TranslateBasicBlock(char *address,
                                    set<char *> *queue,
                                    list<pair<uint32_t, uint32_t>> *offset_fixes)
 {
-  uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->base));
+  uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->min_address));
   uint32_t translated_offset = (uint32_t)module->instrumented_code_allocated;
 
   // printf("Instrumenting bb, original at %p, instrumented at %p\n",
@@ -1208,7 +1208,7 @@ void TinyInst::TranslateBasicBlock(char *address,
     WriteCode(module, JMP, sizeof(JMP));
 
     FixOffsetOrEnqueue(module,
-      (uint32_t)((size_t)target_address1 - (size_t)(module->base)),
+      (uint32_t)((size_t)target_address1 - (size_t)(module->min_address)),
       (uint32_t)(module->instrumented_code_allocated - 4),
       queue, offset_fixes);
 
@@ -1233,7 +1233,7 @@ void TinyInst::TranslateBasicBlock(char *address,
     WriteCode(module, JMP, sizeof(JMP));
 
     FixOffsetOrEnqueue(module,
-      (uint32_t)((size_t)target_address2 - (size_t)(module->base)),
+      (uint32_t)((size_t)target_address2 - (size_t)(module->min_address)),
       (uint32_t)(module->instrumented_code_allocated - 4),
       queue, offset_fixes);
 
@@ -1268,7 +1268,7 @@ void TinyInst::TranslateBasicBlock(char *address,
       WriteCode(module, JMP, sizeof(JMP));
 
       FixOffsetOrEnqueue(module,
-        (uint32_t)((size_t)target_address - (size_t)(module->base)),
+        (uint32_t)((size_t)target_address - (size_t)(module->min_address)),
         (uint32_t)(module->instrumented_code_allocated - 4),
         queue, offset_fixes);
 
@@ -1338,7 +1338,7 @@ void TinyInst::TranslateBasicBlock(char *address,
         WriteCode(module, JMP, sizeof(JMP));
 
         FixOffsetOrEnqueue(module,
-          (uint32_t)((size_t)return_address - (size_t)(module->base)),
+          (uint32_t)((size_t)return_address - (size_t)(module->min_address)),
           (uint32_t)(module->instrumented_code_allocated - 4),
           queue, offset_fixes);
 
@@ -1346,7 +1346,7 @@ void TinyInst::TranslateBasicBlock(char *address,
         WriteCode(module, JMP, sizeof(JMP));
 
         FixOffsetOrEnqueue(module,
-          (uint32_t)((size_t)call_address - (size_t)(module->base)),
+          (uint32_t)((size_t)call_address - (size_t)(module->min_address)),
           (uint32_t)(module->instrumented_code_allocated - 4),
           queue, offset_fixes);
 
@@ -1358,7 +1358,7 @@ void TinyInst::TranslateBasicBlock(char *address,
         WriteCode(module, JMP, sizeof(JMP));
 
         FixOffsetOrEnqueue(module,
-          (uint32_t)((size_t)call_address - (size_t)(module->base)),
+          (uint32_t)((size_t)call_address - (size_t)(module->min_address)),
           (uint32_t)(module->instrumented_code_allocated - 4),
           queue, offset_fixes);
 
@@ -1397,7 +1397,7 @@ void TinyInst::TranslateBasicBlock(char *address,
           WriteCode(module, JMP, sizeof(JMP));
 
           FixOffsetOrEnqueue(module,
-            (uint32_t)((size_t)return_address - (size_t)(module->base)),
+            (uint32_t)((size_t)return_address - (size_t)(module->min_address)),
             (uint32_t)(module->instrumented_code_allocated - 4),
             queue, offset_fixes);
 
@@ -1427,7 +1427,7 @@ void TinyInst::TranslateBasicBlock(char *address,
           WriteCode(module, JMP, sizeof(JMP));
 
           FixOffsetOrEnqueue(module,
-            (uint32_t)((size_t)return_address - (size_t)(module->base)),
+            (uint32_t)((size_t)return_address - (size_t)(module->min_address)),
             (uint32_t)(module->instrumented_code_allocated - 4),
             queue,
             offset_fixes);
@@ -1492,8 +1492,8 @@ TinyInst::ModuleInfo *TinyInst::GetModule(size_t address) {
     ModuleInfo *cur_module = *iter;
     if (!cur_module->loaded) continue;
     if (!cur_module->instrumented) continue;
-    if ((address >= (size_t)cur_module->base) &&
-        (address < (size_t)cur_module->base + cur_module->size))
+    if ((address >= (size_t)cur_module->min_address) &&
+        (address < (size_t)cur_module->max_address))
     {
       if (GetRegion(cur_module, address)) {
         return cur_module;
@@ -1571,7 +1571,7 @@ void TinyInst::OnCrashed(Exception *exception_record) {
 // gets the address in the instrumented code corresponding to
 // address in the original module
 size_t TinyInst::GetTranslatedAddress(ModuleInfo *module, size_t address) {
-  uint32_t offset = (uint32_t)(address - (size_t)module->base);
+  uint32_t offset = (uint32_t)(address - (size_t)module->min_address);
   uint32_t translated_offset;
 
   if (!GetRegion(module, address)) return address;
@@ -1643,8 +1643,9 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     return;
   }
 
-  ExtractCodeRanges(module->base,
-                    module->size,
+  ExtractCodeRanges(module->module_header,
+                    module->min_address,
+                    module->max_address,
                     &module->executable_ranges,
                     &module->code_size);
 
@@ -1666,10 +1667,10 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   module->instrumented_code_remote = NULL;
   // find a convenient spot for the module
   // must be <2GB away from the original code
-  uint64_t min_code = (uint64_t)module->base + module->size;
+  uint64_t min_code = (uint64_t)module->max_address;
   if (min_code < 0x80000000) min_code = 0;
   else min_code -= 0x80000000;
-  uint64_t max_code = (uint64_t)module->base;
+  uint64_t max_code = (uint64_t)module->min_address;
   if (max_code < module->instrumented_code_size) max_code = 0;
   else max_code -= module->instrumented_code_size;
   // try as close as possible
@@ -1706,7 +1707,7 @@ void TinyInst::InstrumentAllLoadedModules() {
   for (auto iter = instrumented_modules.begin();
        iter != instrumented_modules.end(); iter++) {
     ModuleInfo *cur_module = *iter;
-    if (cur_module->base && cur_module->size) {
+    if (cur_module->module_header && cur_module->max_address) {
       if (!cur_module->loaded) continue;
       InstrumentModule(cur_module);
     }
@@ -1728,16 +1729,18 @@ TinyInst::ModuleInfo *TinyInst::IsInstrumentModule(char *module_name) {
 
 void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module) {
   if (target_module->instrumented &&
-      target_module->base &&
-      (target_module->base != (void *)module))
+      target_module->module_header &&
+      (target_module->module_header != (void *)module))
   {
     WARN("Instrumented module loaded on a different address than seen previously\n"
          "Module will need to be re-instrumented. Expect a drop in performance.");
     ClearInstrumentation(target_module);
   }
 
-  target_module->base = (void *)module;
-  target_module->size = GetImageSize(target_module->base);
+  target_module->module_header = (void *)module;
+  GetImageSize(target_module->module_header,
+               &target_module->min_address,
+               &target_module->max_address);
   target_module->loaded = true;
 
   if (target_function_defined) {
@@ -1765,7 +1768,7 @@ void TinyInst::OnModuleUnloaded(void *module) {
        iter != instrumented_modules.end(); iter++)
   {
     ModuleInfo *cur_module = *iter;
-    if (cur_module->base == (void *)module) {
+    if (cur_module->module_header == (void *)module) {
       cur_module->loaded = false;
       if (!persist_instrumentation_data) {
         ClearInstrumentation(cur_module);

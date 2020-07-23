@@ -358,6 +358,18 @@ void Debugger::RemoteWrite(void *address, void *buffer, size_t size) {
   }
 }
 
+void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
+  SIZE_T size_read;
+  if (!ReadProcessMemory(
+    child_handle,
+    address,
+    buffer,
+    size,
+    &size_read)) {
+    FATAL("Error writing target memory\n");
+  }
+}
+
 void Debugger::RemoteProtect(void *address, size_t size, MemoryProtection protect) {
   DWORD protection_flags = WindowsProtectionFlags(protect);
   DWORD old_protect;
@@ -377,11 +389,12 @@ void Debugger::RemoteProtect(void *address, size_t size, MemoryProtection protec
 // makes them non-executable
 // and copies code out into this process
 void Debugger::ExtractCodeRanges(void *module_base,
-                                 size_t module_size,
+                                 size_t min_address,
+                                 size_t max_address,
                                  std::list<AddressRange> *executable_ranges,
                                  size_t *code_size)
 {
-  LPCVOID end_address = (char *)module_base + module_size;
+  LPCVOID end_address = (char *)max_address;
   LPCVOID cur_address = module_base;
   MEMORY_BASIC_INFORMATION meminfobuf;
 
@@ -542,7 +555,7 @@ DWORD Debugger::GetImageSize(void *base_address) {
   unsigned char headers[4096];
   SIZE_T num_read = 0;
   if (!ReadProcessMemory(child_handle, base_address, headers, 4096, &num_read) ||
-     (num_read != 4096))
+    (num_read != 4096))
   {
     FATAL("Error reading target memory\n");
   }
@@ -560,6 +573,14 @@ DWORD Debugger::GetImageSize(void *base_address) {
   }
   DWORD SizeOfImage = *((DWORD *)(pe + 56));
   return SizeOfImage;
+}
+
+
+// parses PE headers and gets the image size
+void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max_address) {
+  *min_address = (size_t)base_address;
+  DWORD SizeOfImage = GetImageSize(base_address);
+  *max_address = *min_address + SizeOfImage;
 }
 
 // adds a one-time breakpoint at a specified address
