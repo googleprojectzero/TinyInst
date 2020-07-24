@@ -94,7 +94,7 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
   data->coverage_buffer_remote = 
     (unsigned char *)RemoteAllocateBefore(min_address,
                                           max_address,
-                                          module->instrumented_code_size,
+                                          data->coverage_buffer_size,
                                           READONLY);
 
   if (!data->coverage_buffer_remote) {
