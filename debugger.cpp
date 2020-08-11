@@ -85,13 +85,13 @@ void Debugger::CreateException(EXCEPTION_RECORD *win_exception_record,
   }
 }
 
-
 void Debugger::RetrieveThreadContext() {
   if (have_thread_context) return; // already done
   lcContext.ContextFlags = CONTEXT_ALL;
   HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
   GetThreadContext(thread_handle, &lcContext);
   CloseHandle(thread_handle);
+  have_thread_context = true;
 }
 
 size_t Debugger::GetRegister(Register r) {
@@ -285,6 +285,31 @@ DWORD Debugger::WindowsProtectionFlags(MemoryProtection protection) {
     FATAL("Unumplemented memory protection");
   }
 }
+
+// allocates memory within 2GB of memory region
+// between region_min and region_max
+void *Debugger::RemoteAllocateNear(uint64_t region_min,
+  uint64_t region_max,
+  size_t size,
+  MemoryProtection protection)
+{
+
+  // try before first
+  uint64_t min_address = region_max;
+  if (min_address < 0x80000000) min_address = 0;
+  else min_address -= 0x80000000;
+  uint64_t max_address = region_min;
+  if (max_address < size) max_address = 0;
+  else max_address -= size;
+
+  return RemoteAllocateBefore(min_address,
+    max_address,
+    size,
+    protection);
+
+  // TODO: RemoteAllocateAfter
+}
+
 
 // allocates memory in target process as close as possible
 // to max_address, but at address larger than min_address

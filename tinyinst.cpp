@@ -1664,22 +1664,11 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     FATAL("Error allocating local code buffer\n");
   }
 
-  module->instrumented_code_remote = NULL;
-  // find a convenient spot for the module
-  // must be <2GB away from the original code
-  uint64_t min_code = (uint64_t)module->max_address;
-  if (min_code < 0x80000000) min_code = 0;
-  else min_code -= 0x80000000;
-  uint64_t max_code = (uint64_t)module->min_address;
-  if (max_code < module->instrumented_code_size) max_code = 0;
-  else max_code -= module->instrumented_code_size;
-  // try as close as possible
-
   module->instrumented_code_remote =
-    (char *)RemoteAllocateBefore(min_code,
-                                 max_code,
-                                 module->instrumented_code_size,
-                                 READEXECUTE);
+    (char *)RemoteAllocateNear((uint64_t)module->min_address,
+                               (uint64_t)module->max_address,
+                               module->instrumented_code_size,
+                               READEXECUTE);
 
   if (!module->instrumented_code_remote) {
     // TODO also try allocating after the module

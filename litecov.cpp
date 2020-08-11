@@ -78,24 +78,15 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
     data->coverage_buffer_size = module->code_size;
   }
 
-  // allocate a coverage buffer near instrumented code
-  // this ensures that we can write to it using mov [rip+offset], ...
-  uint64_t min_address = 
-    (uint64_t)module->instrumented_code_remote + module->instrumented_code_size;
-  if (min_address < 0x80000000) min_address = 0;
-  else min_address -= 0x80000000;
-  uint64_t max_address = (uint64_t)module->instrumented_code_remote;
-  if (max_address < data->coverage_buffer_size) max_address = 0;
-  else max_address -= data->coverage_buffer_size;
-
   // map as readonly initially
   // this causes an exception the first time coverage is written to the buffer
   // this enables us to quickly determine if we had new coverage or not
   data->coverage_buffer_remote = 
-    (unsigned char *)RemoteAllocateBefore(min_address,
-                                          max_address,
-                                          data->coverage_buffer_size,
-                                          READONLY);
+    (unsigned char *)RemoteAllocateNear((uint64_t)module->instrumented_code_remote,
+                                        (uint64_t)module->instrumented_code_remote
+                                          + module->instrumented_code_size,
+                                        data->coverage_buffer_size,
+                                        READONLY);
 
   if (!data->coverage_buffer_remote) {
     FATAL("Could not allocate coverage buffer");

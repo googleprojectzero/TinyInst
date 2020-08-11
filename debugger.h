@@ -113,8 +113,8 @@ protected:
   void GetImageSize(void *base_address, size_t *min_address, size_t *max_address);
 
   // helper functions
-  void *RemoteAllocateBefore(uint64_t min_address,
-    uint64_t max_address,
+  void *RemoteAllocateNear(uint64_t region_min,
+    uint64_t region_max,
     size_t size,
     MemoryProtection protection);
 
@@ -160,6 +160,10 @@ private:
   DWORD WindowsProtectionFlags(MemoryProtection protection);
   DWORD GetImageSize(void *base_address);
   DWORD GetProcOffset(char *data, char *name);
+  void *RemoteAllocateBefore(uint64_t min_address,
+    uint64_t max_address,
+    size_t size,
+    MemoryProtection protection);
 
 protected:
 
