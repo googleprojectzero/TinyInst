@@ -99,7 +99,7 @@ void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
   CollectCoverage(data);
 
   if (data->coverage_buffer_remote) {
-    RemoteFree(data->coverage_buffer_remote);
+    RemoteFree(data->coverage_buffer_remote, data->coverage_buffer_size);
   }
 
   data->ClearInstrumentationData();

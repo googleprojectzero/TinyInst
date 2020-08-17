@@ -129,7 +129,7 @@ protected:
   // returns address in (potentially) instrumented code
   virtual size_t GetTranslatedAddress(size_t address) { return address; }
 
-  void RemoteFree(void *address);
+  void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
   void RemoteProtect(void *address, size_t size, MemoryProtection protect);

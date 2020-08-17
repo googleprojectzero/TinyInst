@@ -1622,7 +1622,8 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
 // and if clear_remote_data is set, also in the remote process 
 void TinyInst::ClearInstrumentation(ModuleInfo *module) {
   if (module->instrumented_code_remote) {
-    RemoteFree(module->instrumented_code_remote);
+    RemoteFree(module->instrumented_code_remote,
+               module->instrumented_code_size);
     module->instrumented_code_remote = NULL;
   }
   module->ClearInstrumentation();

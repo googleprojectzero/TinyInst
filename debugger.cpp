@@ -366,7 +366,7 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
   return ret_address;
 }
 
-void Debugger::RemoteFree(void *address) {
+void Debugger::RemoteFree(void *address, size_t size) {
   if (!child_handle) return;
   VirtualFreeEx(child_handle, address, 0, MEM_RELEASE);
 }
