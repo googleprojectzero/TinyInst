@@ -13,6 +13,7 @@
 # limitations under the License.
 
 cmake_minimum_required(VERSION "3.1")
+set (CMAKE_CXX_STANDARD 11)
 
 add_subdirectory(third_party)
 
