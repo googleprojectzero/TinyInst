@@ -24,7 +24,7 @@ limitations under the License.
 #include "psapi.h"
 #include "dbghelp.h"
 
-#include "common.h"
+#include "../common.h"
 #include "debugger.h"
 
 

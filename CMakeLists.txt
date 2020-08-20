@@ -25,8 +25,8 @@ link_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib)
 add_library(tinyinst STATIC
   common.h
   common.cpp
-  debugger.h
-  debugger.cpp
+  Windows/debugger.h
+  Windows/debugger.cpp
   tinyinst.h
   tinyinst.cpp
   coverage.h
