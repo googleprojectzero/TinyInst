@@ -19,8 +19,6 @@ limitations under the License.
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdbool.h>
-#include <direct.h>
-#include "windows.h"
 
 #include "common.h"
 #include "litecov.h"

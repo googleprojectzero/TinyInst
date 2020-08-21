@@ -16,7 +16,7 @@ limitations under the License.
 
 #define  _CRT_SECURE_NO_WARNINGS
 
-#include "windows.h"
+#include "common.h"
 #include "coverage.h"
 #include <algorithm>
 
