@@ -1443,6 +1443,16 @@ DebuggerStatus Debugger::Run(char *cmd, uint32_t timeout) {
   return Continue(timeout);
 }
 
+DebuggerStatus Debugger::Run(int argc, char **argv, uint32_t timeout) {
+    char* cmd = NULL;
+    cmd = ArgvToCmd(argc, argv);
+
+    DebuggerStatus ret_dbg_status = Run(cmd, timeout);
+    free(cmd);
+
+    return ret_dbg_status;
+}
+
 // continues after Run() or previous Continue()
 // return with a non-terminal status
 DebuggerStatus Debugger::Continue(uint32_t timeout) {
