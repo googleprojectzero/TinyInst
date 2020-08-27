@@ -147,6 +147,15 @@ protected:
   ModuleInfo *GetModuleFromInstrumented(size_t address);
   AddressRange *GetRegion(ModuleInfo *module, size_t address);
 
+  void FixInstructionAndOutput(ModuleInfo *module,
+    xed_decoded_inst_t *xedd,
+    unsigned char *input,
+    unsigned char *input_address_remote,
+    bool convert_call_to_jmp = false);
+
+  int xed_mmode;
+  int32_t sp_offset;
+
 private:
   bool HandleBreakpoint(void *address);
   void OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module);
@@ -166,11 +175,6 @@ private:
                           uint32_t jmp_offset,
                           std::set<char *> *queue,
                           std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
-  void FixInstructionAndOutput(ModuleInfo *module,
-                               xed_decoded_inst_t *xedd,
-                               unsigned char *input,
-                               unsigned char *input_address_remote,
-                               bool convert_call_to_jmp = false);
   void InvalidInstruction(ModuleInfo *module);
 
   // needed to support cross-module linking
@@ -238,6 +242,7 @@ private:
 
   virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
                                                   xed_decoded_inst_t *xedd,
+                                                  size_t bb_address,
                                                   size_t instruction_address)
   { 
     return INST_NOTHANDLED;
@@ -246,15 +251,11 @@ private:
   virtual void OnModuleInstrumented(ModuleInfo *module) {}
   virtual void OnModuleUninstrumented(ModuleInfo *module) {}
 
-  int xed_mmode;
-
   IndirectInstrumentation indirect_instrumentation_mode;
 
   bool instrument_cross_module_calls;
   bool patch_return_addresses;
   bool persist_instrumentation_data;
-
-  int32_t sp_offset;
 
   bool trace_basic_blocks;
   bool trace_module_entries;

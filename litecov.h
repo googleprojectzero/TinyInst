@@ -30,6 +30,18 @@ enum CovType {
   COVTYPE_EDGE
 };
 
+struct CmpCoverageRecord {
+  bool ignored;
+  int width;
+  int match_width;
+  size_t bb_address; // for debugging
+  size_t bb_offset;
+  size_t cmp_offset;
+  size_t instrumentation_offset;
+  size_t instrumentation_size;
+  size_t match_width_offset;
+};
+
 class ModuleCovData {
 public:
   ModuleCovData();
@@ -52,6 +64,10 @@ public:
   std::unordered_map<uint64_t, size_t> coverage_to_inst;
 
   bool has_remote_coverage;
+
+  void ClearCmpCoverageData();
+  std::unordered_map<size_t, CmpCoverageRecord*> buf_to_cmp;
+  std::unordered_map<uint64_t, CmpCoverageRecord*> coverage_to_cmp;
 };
 
 class LiteCov : public TinyInst {
@@ -80,6 +96,11 @@ protected:
                               ModuleInfo *next_module,
                               size_t previous_address,
                               size_t next_address) override;
+  virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
+                                                  xed_decoded_inst_t *xedd,
+                                                  size_t bb_address,
+                                                  size_t instruction_address) override;
+
 
   void EmitCoverageInstrumentation(ModuleInfo *module, uint64_t coverage_code);
   void ClearCoverageInstrumentation(ModuleInfo *module, uint64_t coverage_code);
@@ -87,7 +108,7 @@ protected:
   // compute a unique code for a basic block
   // this is just an offset into the module
   uint64_t GetBBCode(ModuleInfo *module, size_t bb_address);
-
+ 
   // compute a unique code for a basic block
   // this has address1 offset in lower 32 bits and
   // address2 offset in higher 32 bits
@@ -102,9 +123,17 @@ protected:
   void CollectCoverage(ModuleCovData *data);
   void CollectCoverage();
 
+  uint64_t GetCmpCode(size_t bb_offset, size_t cmp_offset, int bits_match);
+  bool IsCmpCoverageCode(uint64_t code);
+  void ClearCmpCoverageInstrumentation(ModuleInfo *module, uint64_t coverage_code);
+  void CollectCmpCoverage(ModuleCovData *data, size_t buffer_offset, char buffer_value);
+  bool ShouldInstrumentSub(ModuleInfo *module,
+                           xed_decoded_inst_t *cmp_xedd,
+                           size_t instruction_address);
 private:
 
   CovType coverage_type;
+  bool compare_coverage;
 };
 
 #endif // LITECOV_H

@@ -33,6 +33,8 @@ add_library(tinyinst STATIC
   coverage.cpp
   litecov.h
   litecov.cpp
+  x86_helpers.h
+  x86_helpers.cpp
   )
 
 add_dependencies(tinyinst xed)

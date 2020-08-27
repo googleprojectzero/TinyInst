@@ -1086,7 +1086,7 @@ void TinyInst::TranslateBasicBlock(char *address,
 
     // instruction-level-instrumentation
     InstructionResult instrumentation_result =
-      InstrumentInstruction(module, &xedd, (size_t)address + offset);
+      InstrumentInstruction(module, &xedd, (size_t)address, (size_t)address + offset);
 
     switch (instrumentation_result) {
     case INST_HANDLED:
