@@ -34,7 +34,7 @@ int cur_iteration;
 // whether it's the whole process or target method
 // and regardless if the target is persistent or not
 // (should know what to do in pretty much all cases)
-void RunTarget(char *cmd, unsigned int pid, uint32_t timeout) {
+void RunTarget(int argc, char **argv, unsigned int pid, uint32_t timeout) {
   DebuggerStatus status;
 
   // else clear only when the target function is reached
@@ -47,8 +47,8 @@ void RunTarget(char *cmd, unsigned int pid, uint32_t timeout) {
   } else {
     instrumentation->Kill();
     cur_iteration = 0;
-    if (cmd) {
-      status = instrumentation->Run(cmd, timeout);
+    if (argc) {
+      status = instrumentation->Run(argc, argv, timeout);
     } else {
       status = instrumentation->Attach(pid, timeout);
     }
@@ -57,12 +57,12 @@ void RunTarget(char *cmd, unsigned int pid, uint32_t timeout) {
   // if target function is defined,
   // we should wait until it is hit
   if (instrumentation->IsTargetFunctionDefined()) {
-    if ((status != DEBUGGER_TARGET_START) && cmd) {
+    if ((status != DEBUGGER_TARGET_START) && argc) {
       // try again with a clean process
       WARN("Target function not reached, retrying with a clean process\n");
       instrumentation->Kill();
       cur_iteration = 0;
-      status = instrumentation->Run(cmd, timeout);
+      status = instrumentation->Run(argc, argv, timeout);
     }
 
     if (status != DEBUGGER_TARGET_START) {
@@ -133,17 +133,15 @@ int main(int argc, char **argv)
     }
   }
 
-  char *cmd = NULL;
-  if (target_opt_ind) {
-    cmd = ArgvToCmd(argc - target_opt_ind, argv + target_opt_ind);
-  }
+  int target_argc = argc - target_opt_ind;
+  char** target_argv = argv + target_opt_ind;
 
   unsigned int pid = GetIntOption("-pid", argc, argv, 0);
   persist = GetBinaryOption("-persist", argc, argv, false);
   num_iterations = GetIntOption("-iterations", argc, argv, 1);
   char *outfile = GetOption("-coverage_file", argc, argv);
 
-  if (!cmd && !pid) {
+  if (!target_argc && !pid) {
     printf("Usage:\n"); 
     printf("%s <options> -- <target command line>\n", argv[0]);
     printf("Or:\n");
@@ -154,7 +152,7 @@ int main(int argc, char **argv)
   Coverage coverage, newcoverage;
 
   for (int i = 0; i < num_iterations; i++) {
-    RunTarget(cmd, pid, 0xFFFFFFFF);
+    RunTarget(target_argc, target_argv, pid, 0xFFFFFFFF);
 
     Coverage newcoverage;
 

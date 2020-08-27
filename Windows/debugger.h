@@ -36,6 +36,7 @@ public:
 
   virtual void Init(int argc, char **argv);
   DebuggerStatus Run(char *cmd, uint32_t timeout);
+  DebuggerStatus Run(int argc, char** argv, uint32_t timeout);
   DebuggerStatus Kill();
   DebuggerStatus Continue(uint32_t timeout);
   DebuggerStatus Attach(unsigned int pid, uint32_t timeout);
