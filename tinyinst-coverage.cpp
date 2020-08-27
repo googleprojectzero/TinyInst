@@ -134,7 +134,7 @@ int main(int argc, char **argv)
   }
 
   int target_argc = argc - target_opt_ind;
-  char** target_argv = argv + target_opt_ind;
+  char **target_argv = argv + target_opt_ind;
 
   unsigned int pid = GetIntOption("-pid", argc, argv, 0);
   persist = GetBinaryOption("-persist", argc, argv, false);
