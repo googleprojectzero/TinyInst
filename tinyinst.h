@@ -22,7 +22,8 @@ limitations under the License.
 #include <unordered_map>
 #include <unordered_set>
 
-#include "debugger.h"
+#include "Windows/debugger.h"
+#include "common.h"
 
 // must be a power of two
 #define JUMPTABLE_SIZE 0x2000
@@ -78,7 +79,6 @@ protected:
     char *instrumented_code_local;
     char *instrumented_code_remote;
     char *instrumented_code_remote_previous;
-    HANDLE mapping;
 
     std::unordered_map<uint32_t, uint32_t> basic_blocks;
 

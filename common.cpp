@@ -20,7 +20,6 @@ limitations under the License.
 #include "common.h"
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-#include <windows.h>
 
 uint64_t GetCurTime(void) {
   uint64_t ret;

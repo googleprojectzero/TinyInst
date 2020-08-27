@@ -20,14 +20,9 @@ limitations under the License.
 #include <stdbool.h>
 #include <inttypes.h>
 
-#include "windows.h"
-#include "psapi.h"
-#include "dbghelp.h"
-
 #include <list>
 using namespace std;
 
-#include "common.h"
 #include "tinyinst.h"
 
 extern "C" {
@@ -135,7 +130,6 @@ TinyInst::ModuleInfo::ModuleInfo() {
   instrumented_code_remote = NULL;
   instrumented_code_remote_previous = NULL;
   instrumented_code_size = 0;
-  mapping = NULL;
 }
 
 void TinyInst::ModuleInfo::ClearInstrumentation() {
