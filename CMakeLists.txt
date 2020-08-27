@@ -21,7 +21,6 @@ add_subdirectory(third_party)
 project("tinyinst")
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
-link_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib)
 
 add_library(tinyinst STATIC
   common.h
@@ -40,7 +39,7 @@ add_library(tinyinst STATIC
 
 add_dependencies(tinyinst xed)
 
-target_link_libraries(tinyinst "xed.lib")
+target_link_libraries(tinyinst ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib)
 target_link_libraries(tinyinst "Dbghelp.lib")
 
 
