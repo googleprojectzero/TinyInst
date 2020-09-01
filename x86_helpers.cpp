@@ -285,3 +285,29 @@ uint32_t CmpImm8(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t des
 
   return olen;
 }
+
+uint32_t GetInstructionLength(xed_encoder_request_t *inst) {
+  unsigned int olen;
+  unsigned char tmp[15];
+  xed_error_enum_t xed_error;
+  
+  xed_error = xed_encode(inst, tmp, sizeof(tmp), &olen);
+  if (xed_error != XED_ERROR_NONE) {
+    FATAL("Error encoding instruction");
+  }
+
+  return olen;
+
+}
+
+void FixRipDisplacement(xed_encoder_request_t *inst, size_t mem_address, size_t fixed_instruction_address) {
+  // fake displacement, just to get length
+  xed_encoder_request_set_memory_displacement(inst, 0x7777777, 4);
+  uint32_t inst_length = GetInstructionLength(inst);
+  
+  size_t instruction_end_addr = fixed_instruction_address + inst_length;
+  int64_t fixed_disp = (int64_t)(mem_address) - (int64_t)(instruction_end_addr);
+  if (llabs(fixed_disp) > 0x7FFFFFFF) FATAL("Offset larger than 2G");
+  
+  xed_encoder_request_set_memory_displacement(inst, fixed_disp, 4);
+}

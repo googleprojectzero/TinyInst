@@ -147,6 +147,11 @@ protected:
   ModuleInfo *GetModuleFromInstrumented(size_t address);
   AddressRange *GetRegion(ModuleInfo *module, size_t address);
 
+  bool IsRipRelative(ModuleInfo *module,
+    xed_decoded_inst_t *xedd,
+    size_t instruction_address,
+    size_t *mem_address);
+
   void FixInstructionAndOutput(ModuleInfo *module,
     xed_decoded_inst_t *xedd,
     unsigned char *input,
@@ -219,10 +224,6 @@ private:
 
   void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
 
-  bool IsRipRelative(ModuleInfo *module,
-                     xed_decoded_inst_t *xedd,
-                     size_t instruction_address,
-                     size_t *mem_address);
   size_t AddTranslatedJump(ModuleInfo *module,
                            ModuleInfo *target_module,
                            size_t original_target,

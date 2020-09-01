@@ -29,3 +29,9 @@ void CopyOperandFromInstruction(xed_decoded_inst_t *src,
                                 xed_operand_enum_t dest_operand_name,
                                 int dest_operand_index,
                                 size_t stack_offset);
+
+uint32_t GetInstructionLength(xed_encoder_request_t *inst);
+
+void FixRipDisplacement(xed_encoder_request_t *inst,
+                        size_t mem_address,
+                        size_t fixed_instruction_address);
