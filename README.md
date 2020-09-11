@@ -30,7 +30,7 @@ TinyInst is a full binary rewriting solution, so arbitrary behavior can be chang
 
 ### Which operating system does TinyInst support?
 
-TinyInst is available on Windows (32- and 64-bit) and macOS (64-bit).
+TinyInst is available on Windows (32- and 64-bit) and macOS (64-bit) with some [limitations](https://github.com/googleprojectzero/TinyInst/tree/master/macOS).
 
 ### Which targets are compatible with TinyInst?
 
