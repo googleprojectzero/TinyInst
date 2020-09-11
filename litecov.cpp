@@ -270,6 +270,7 @@ bool LiteCov::OnException(Exception *exception_record)
 }
 
 void LiteCov::ClearRemoteBuffer(ModuleCovData *data) {
+  if (!IsTargetAlive()) return;
   if (!data->coverage_buffer_remote) return;
   if (!data->has_remote_coverage) return;
 
@@ -304,7 +305,7 @@ void LiteCov::ClearCoverage() {
 
 // fetches and decodes coverage from the remote buffer
 void LiteCov::CollectCoverage(ModuleCovData *data) {
-  if (!data->has_remote_coverage) return;
+  if (!IsTargetAlive() || !data->has_remote_coverage) return;
 
   unsigned char *buf = (unsigned char *)malloc(data->coverage_buffer_next);
 
@@ -400,7 +401,9 @@ bool LiteCov::HasNewCoverage() {
 
 void LiteCov::OnProcessExit() {
   TinyInst::OnProcessExit();
-  CollectCoverage();
+  if (IsTargetAlive()) {
+    CollectCoverage();
+  }
 }
 
 uint64_t LiteCov::GetCmpCode(size_t bb_offset, size_t cmp_offset, int bits_match) {

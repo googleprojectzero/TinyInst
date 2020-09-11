@@ -16,22 +16,15 @@ limitations under the License.
 
 #include <inttypes.h>
 #include <list>
+#include <chrono>
 
 #include "common.h"
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-
 uint64_t GetCurTime(void) {
-  uint64_t ret;
-  FILETIME filetime;
-  GetSystemTimeAsFileTime(&filetime);
-
-  ret = (((uint64_t)filetime.dwHighDateTime) << 32) + (uint64_t)filetime.dwLowDateTime;
-
-  return ret / 10000;
+  auto duration =  std::chrono::system_clock::now().time_since_epoch();
+  auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+  return millis;
 }
-
-#endif // Windows
 
 bool BoolFromOptionValue(char *value) {
   if (_stricmp(value, "off") == 0) return false;
@@ -99,12 +92,12 @@ void GetOptionAll(const char *name, int argc, char** argv, std::list<char *> *re
 int GetIntOption(const char *name, int argc, char** argv, int default_value) {
   char *option = GetOption(name, argc, argv);
   if (!option) return default_value;
-  return strtol(option, NULL, 0);
+  return (int)strtol(option, NULL, 0);
 }
 
 
 //quoting on Windows is weird
-size_t ArgvQuote(char *in, char *out) {
+size_t ArgvEscapeWindows(char *in, char *out) {
   int needs_quoting = 0;
   size_t size = 0;
   char *p = in;
@@ -165,6 +158,24 @@ size_t ArgvQuote(char *in, char *out) {
   return size;
 }
 
+size_t ArgvEscapeMacOS(char *in, char *out) {
+  size_t size = 0;
+  char *p = in;
+  while (*p) {
+    if (strchr("|&:;()<>~*@?!$#[]{}\\ '\"`\t\n\v\r", *p)) {
+      if (out) out[size] = '\\';
+      size++;
+    }
+
+    if (out) out[size] = *p;
+    size++;
+
+    p++;
+  }
+
+  return size;
+}
+
 
 char *ArgvToCmd(int argc, char** argv) {
   size_t len = 0;
@@ -172,19 +183,21 @@ char *ArgvToCmd(int argc, char** argv) {
   char* buf, *ret;
 
   for (i = 0; i < argc; i++)
-    len += ArgvQuote(argv[i], NULL) + 1;
+    len += ArgvEscape(argv[i], NULL) + 1;
 
   if (!len) FATAL("Error creating command line");
 
   buf = ret = (char *)malloc(len);
 
   for (i = 0; i < argc; i++) {
-    size_t l = ArgvQuote(argv[i], buf);
+    size_t l = ArgvEscape(argv[i], buf);
     buf += l;
     *(buf++) = ' ';
   }
 
   ret[len - 1] = 0;
+
+  printf("%s\n", ret);
 
   return ret;
 }

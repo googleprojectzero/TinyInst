@@ -30,7 +30,7 @@ TinyInst is a full binary rewriting solution, so arbitrary behavior can be chang
 
 ### Which operating system does TinyInst support?
 
-Currently Windows only (32- and 64-bit). Mac OS support might be considered in the future.
+TinyInst is available on Windows (32- and 64-bit) and macOS (64-bit).
 
 ### Which targets are compatible with TinyInst?
 
@@ -47,16 +47,25 @@ According to early measurements on image decoding, on a well-behaving 64-bit tar
 
 ## Building TinyInst
 
-1. Open a command prompt and set up your build environment, e.g. run vcvars64.bat / vcvars32.bat
+1. Open a terminal and set up your build environment (e.g. On Windows, run vcvars64.bat / vcvars32.bat)
 
 2. Navigate to the directory containing the source
 
-3. Run the following commands (change the generator according to the version of Visual Studio and platform you want to build for):
+3. Run the following commands (change the generator according to the version of IDE and platform you want to build for):
 
+#### Windows
 ```
 mkdir build
 cd build
 cmake -G"Visual Studio 15 2017 Win64" ..
+cmake --build . --config Release
+```
+
+#### macOS
+```
+mkdir build
+cd build
+cmake -G Xcode ..
 cmake --build . --config Release
 ```
 
@@ -76,7 +85,7 @@ After the client is created, it must be initialized with command line options by
 
 The command line options are defined below and a client can also define their own. After that, to run and control an instrumented program, the following functions can be used.
 
-`DebuggerStatus Run(char *cmd, uint32_t timeout);`
+`DebuggerStatus Run(int argc, char **argv, uint32_t timeout);`
 `DebuggerStatus Attach(unsigned int pid, uint32_t timeout);`
 
 These functions either run a program (using the specified command line) or attach to an already running program. If no target method is specified, the target will continue running until either the program exits, the program crashes, or the timeout (given in milliseconds) expires. If a target method is defined, TinyInst is going to return whenever the target method is entered and whenever target method returns, allowing the caller to perform additional tasks.
@@ -89,11 +98,12 @@ When `Run` and `Attach` return while the target process is still alive, the foll
 
 TinyInst comes with an example coverage binary, which can be invoked using
 
-`litecov.exe <options> -- <target command line>`
+`<options> -- <target command line>`
 
-Example:
+Example on Windows:
 
 `litecov.exe -instrument_module notepad.exe -coverage_file coverage.txt -- notepad.exe`
+
 
 ## Instrumentation API
 
@@ -246,5 +256,6 @@ Use the OnException() callback to examine program state when the crash occurs.
 ## Disclaimer
 
 This is not an official Google product.
+
 
 
