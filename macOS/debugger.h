@@ -252,6 +252,8 @@ private:
   mach_msg_header_t *request_buffer;
   mach_msg_header_t *reply_buffer;
 
+  bool killing_target;
+
   void GetMachHeader(void *mach_header_axddress, mach_header_64 *mach_header);
   void GetLoadCommandsBuffer(void *mach_header_address, const mach_header_64 *mach_header, void **load_commands);
 

@@ -1011,6 +1011,7 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
 
 DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   if (!IsTargetAlive()) {
+    OnProcessExit();
     return DEBUGGER_PROCESS_EXIT;
   }
 
@@ -1125,7 +1126,7 @@ kern_return_t catch_mach_exception_raise_state(
 /**
  * Called by mach_exc_server
  *
- * @param exception_port the target_exception_port registered in AttachToProcess() method
+ * @param exception_port the exception_port registered in AttachToProcess() method
  * @param task_port the target_task
 */
 kern_return_t catch_mach_exception_raise_state_identity(
@@ -1164,7 +1165,12 @@ kern_return_t catch_mach_exception_raise_state_identity(
   dbg = it->second;
   Debugger::map_mutex.unlock();
 
-  dbg->HandleExceptionInternal(mach_exception);
+  if (!dbg->killing_target) {
+    dbg->HandleExceptionInternal(mach_exception);
+  } else {
+    dbg->dbg_continue_status = KERN_FAILURE;
+    dbg->handle_exception_status = DEBUGGER_CONTINUE;
+  }
 
   kern_return_t krt;
   krt = mach_port_deallocate(mach_task_self(), task_port);
@@ -1204,6 +1210,7 @@ DebuggerStatus Debugger::Kill() {
     return DEBUGGER_PROCESS_EXIT;
   }
 
+  killing_target = true;
   int target_pid = mach_target->Pid();
   kill(target_pid, SIGKILL);
 
@@ -1217,6 +1224,7 @@ DebuggerStatus Debugger::Kill() {
   while(waitpid(target_pid, &status, WNOHANG) == target_pid);
 
   DeleteBreakpoints();
+  killing_target = false;
 
   return dbg_last_status;
 }
@@ -1277,17 +1285,18 @@ void Debugger::StartProcess(int argc, char **argv) {
   free(envp);
 
   mach_target = new MachTarget(pid);
+}
 
+
+void Debugger::AttachToProcess() {
+  killing_target = false;
   dbg_continue_needed = false;
   dbg_reply_needed = false;
   child_entrypoint_reached = false;
   target_reached = false;
 
   DeleteBreakpoints();
-}
 
-
-void Debugger::AttachToProcess() {
   int ptrace_ret;
   ptrace_ret = ptrace(PT_ATTACHEXC, mach_target->Pid(), 0, 0);
   if (ptrace_ret == -1) {
@@ -1337,6 +1346,7 @@ DebuggerStatus Debugger::Continue(uint32_t timeout) {
 
 void Debugger::Init(int argc, char **argv) {
   mach_target = NULL;
+  killing_target = false;
 
   attach_mode = false;
   trace_debug_events = false;
