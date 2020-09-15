@@ -162,9 +162,13 @@ private:
   DWORD GetImageSize(void *base_address);
   DWORD GetProcOffset(char *data, char *name);
   void *RemoteAllocateBefore(uint64_t min_address,
-    uint64_t max_address,
-    size_t size,
-    MemoryProtection protection);
+                             uint64_t max_address,
+                             size_t size,
+                             MemoryProtection protection);
+  void *RemoteAllocateAfter(uint64_t min_address,
+                            uint64_t max_address,
+                            size_t size,
+                            MemoryProtection protection);
 
 protected:
 
@@ -217,6 +221,7 @@ private:
   DWORD thread_id;
   CONTEXT lcContext;
   bool have_thread_context;
+  size_t allocation_granularity;
 };
 
 #endif // DEBUGGER_H

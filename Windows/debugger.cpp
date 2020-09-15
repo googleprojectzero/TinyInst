@@ -293,6 +293,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   size_t size,
   MemoryProtection protection)
 {
+  void *ret = NULL;
 
   // try before first
   uint64_t min_address = region_max;
@@ -302,12 +303,30 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   if (max_address < size) max_address = 0;
   else max_address -= size;
 
-  return RemoteAllocateBefore(min_address,
+  ret = RemoteAllocateBefore(min_address,
     max_address,
     size,
     protection);
 
-  // TODO: RemoteAllocateAfter
+  if (ret) return ret;
+
+  min_address = region_max;
+  uint64_t address_range_max = 0xFFFFFFFFFFFFFFFFULL;
+  if (child_ptr_size == 4) {
+    address_range_max = 0xFFFFFFFFULL;
+  }
+  if ((address_range_max - 0x80000000) < region_min) {
+    max_address = address_range_max - size;
+  } else {
+    max_address = region_min + 0x80000000 - size;
+  }
+
+  ret = RemoteAllocateAfter(min_address,
+    max_address,
+    size,
+    protection);
+
+  return ret;
 }
 
 
@@ -361,6 +380,64 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
     cur_code = (size_t)meminfobuf.BaseAddress;
     if (cur_code < step) break;
     else cur_code -= step;
+  }
+
+  return ret_address;
+}
+
+// allocates memory in target process as close as possible
+// to min_address, but not higher than min_address
+void *Debugger::RemoteAllocateAfter(uint64_t min_address,
+  uint64_t max_address,
+  size_t size,
+  MemoryProtection protection)
+{
+  DWORD protection_flags = WindowsProtectionFlags(protection);
+
+  MEMORY_BASIC_INFORMATION meminfobuf;
+  void *ret_address = NULL;
+
+  uint64_t cur_code = min_address;
+  while (cur_code < max_address) {
+    size_t query_ret = VirtualQueryEx(child_handle,
+      (LPCVOID)cur_code,
+      &meminfobuf,
+      sizeof(MEMORY_BASIC_INFORMATION));
+    if (!query_ret) break;
+
+    if (meminfobuf.State == MEM_FREE) {
+      size_t region_address = (size_t)meminfobuf.BaseAddress;
+      size_t region_size = meminfobuf.RegionSize;
+      // make sure we are allocating on an address that
+      // is aligned according to allocation_granularity
+      size_t alignment = region_address & (allocation_granularity - 1);
+      if (alignment) {
+        size_t offset = (allocation_granularity - alignment);
+        region_address += offset;
+        if (region_size > offset) {
+          region_size -= offset;
+        } else {
+          region_size = 0;
+        }
+      }
+      if (region_size >= size) {
+        ret_address = VirtualAllocEx(child_handle,
+          (LPVOID)region_address,
+          size,
+          MEM_COMMIT | MEM_RESERVE,
+          protection_flags);
+        if (ret_address) {
+          if (((size_t)ret_address >= min_address) &&
+            ((size_t)ret_address <= max_address)) {
+            return ret_address;
+          } else {
+            return NULL;
+          }
+        }
+      }
+    }
+
+    cur_code = (size_t)meminfobuf.BaseAddress + meminfobuf.RegionSize;
   }
 
   return ret_address;
@@ -1549,4 +1626,9 @@ void Debugger::Init(int argc, char **argv) {
   if (target_num_args) {
     saved_args = (void **)malloc(target_num_args * sizeof(void *));
   }
+
+  // get allocation granularity
+  SYSTEM_INFO system_info;
+  GetSystemInfo(&system_info);
+  allocation_granularity = system_info.dwAllocationGranularity;
 }
