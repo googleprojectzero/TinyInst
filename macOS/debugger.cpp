@@ -1193,14 +1193,22 @@ void Debugger::OnProcessExit() {
     SAY("Debugger: Process exit\n");
   }
 
-  map_mutex.lock();
-  task_to_debugger_map.erase(mach_target->Task());
-  map_mutex.unlock();
-
   if (mach_target != NULL) {
+    map_mutex.lock();
+    int removed = task_to_debugger_map.erase(mach_target->Task());
+    if (removed == 0) {
+      WARN("There is no task port (%d) in task_to_debugger_map to be erased", mach_target->Task());
+    }
+    map_mutex.unlock();
+
+    int target_pid = mach_target->Pid();
+
     mach_target->CleanUp();
     delete mach_target;
     mach_target = NULL;
+
+    int status;
+    while(waitpid(target_pid, &status, WNOHANG) == target_pid);
   }
 }
 
@@ -1219,9 +1227,6 @@ DebuggerStatus Debugger::Kill() {
   if (dbg_last_status != DEBUGGER_PROCESS_EXIT || IsTargetAlive()) {
     FATAL("Unable to kill the process\n");
   }
-
-  int status;
-  while(waitpid(target_pid, &status, WNOHANG) == target_pid);
 
   DeleteBreakpoints();
   killing_target = false;
