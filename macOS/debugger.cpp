@@ -1197,7 +1197,7 @@ void Debugger::OnProcessExit() {
     map_mutex.lock();
     int removed = task_to_debugger_map.erase(mach_target->Task());
     if (removed == 0) {
-      WARN("There is no task port (%d) in task_to_debugger_map to be erased", mach_target->Task());
+      WARN("There is no task port (%u) in task_to_debugger_map to be erased", mach_target->Task());
     }
     map_mutex.unlock();
 
