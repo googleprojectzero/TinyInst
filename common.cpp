@@ -197,7 +197,7 @@ char *ArgvToCmd(int argc, char** argv) {
 
   ret[len - 1] = 0;
 
-  printf("%s\n", ret);
+  // printf("%s\n", ret);
 
   return ret;
 }

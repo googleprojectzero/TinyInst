@@ -29,6 +29,9 @@ extern "C" {
 #include "xed/xed-interface.h"
 }
 
+// nop
+unsigned char NOP[] = { 0x90 };
+
 // jmp offset
 unsigned char JMP[] = { 0xe9, 0x00, 0x00, 0x00, 0x00 };
 
@@ -1063,6 +1066,15 @@ void TinyInst::TranslateBasicBlock(char *address,
                                 module->instrumented_code_allocated;
     WriteCode(module, &breakpoint, 1);
     module->tracepoints[breakpoint_address] = (size_t)address;
+  } else if (GetTargetMethodAddress()) {
+    // hack, allow 1 byte of unused space at the beginning
+    // of the target method. This is needed because we
+    // are setting a brekpoint here. If this breakpoint falls
+    // into code inserted by the client, and the client modifies
+    // that code later, we loose the breakpoint.
+    if(GetTargetMethodAddress() == address) {
+      WriteCode(module, NOP, sizeof(NOP));
+    }
   }
 
   // write pre-bb instrumentation

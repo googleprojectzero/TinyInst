@@ -190,6 +190,8 @@ protected:
 
   // returns address in (potentially) instrumented code
   virtual size_t GetTranslatedAddress(size_t address) { return address; }
+  
+  void *GetTargetMethodAddress() { return target_address; }
 
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;

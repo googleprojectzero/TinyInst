@@ -1364,6 +1364,7 @@ void Debugger::Init(int argc, char **argv) {
   target_offset = 0;
   saved_args = NULL;
   target_num_args = 0;
+  target_address = NULL;
 
   dbg_last_status = DEBUGGER_NONE;
 

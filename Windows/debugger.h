@@ -142,6 +142,8 @@ protected:
   size_t GetRegister(Register r);
   void SetRegister(Register r, size_t value);
 
+  void *GetTargetMethodAddress() { return target_address;  }
+
 private:
   struct Breakpoint {
     void *address;

@@ -1576,6 +1576,7 @@ void Debugger::Init(int argc, char **argv) {
   saved_args = NULL;
   target_num_args = 0;
   calling_convention = CALLCONV_DEFAULT;
+  target_address = NULL;
 
   char *option;
 
