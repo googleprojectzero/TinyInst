@@ -79,6 +79,25 @@ public:
   bool IsTargetAlive();
   bool IsTargetFunctionDefined() { return target_function_defined; };
 
+  enum ExceptionType {
+    BREAKPOINT,
+    ACCESS_VIOLATION,
+    ILLEGAL_INSTRUCTION,
+    OTHER
+  };
+
+  struct Exception {
+    ExceptionType type;
+    void *ip;
+    bool maybe_write_violation;
+    bool maybe_execute_violation;
+    void *access_address;
+  };
+
+  Exception GetLastException() {
+    return last_exception;
+  }
+
 protected:
   enum MemoryProtection {
     READONLY,
@@ -105,21 +124,6 @@ protected:
     R14,
     R15,
     RIP
-  };
-
-  enum ExceptionType {
-    BREAKPOINT,
-    ACCESS_VIOLATION,
-    ILLEGAL_INSTRUCTION,
-    OTHER
-  };
-
-  struct Exception {
-    ExceptionType type;
-    void *ip;
-    bool maybe_write_violation;
-    bool maybe_execute_violation;
-    void *access_address;
   };
 
   struct AddressRange {
