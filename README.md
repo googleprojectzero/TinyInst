@@ -199,7 +199,7 @@ TinyInst allows user to define a target method. If a target method is defined, n
 
 ## Coverage module
 
-TinyInst comes with an (example) coverage module, `LiteCov`. The coverage module can collect basic block or edge coverage (controlled using `-covtype` flag).
+TinyInst comes with an (example) coverage module, `LiteCov`. The coverage module can collect basic block or edge coverage (controlled using `-covtype` flag). In addition to this, the module can extract "compare" coverage (counting the number of bytes that match in cmp/sub instructions) by specifying the `-cmp_coverage` flag.
 
 Special feature of the coverage module is that the coverage buffer in the target process is initially allocated as read-only, causing an exception the first time new coverage is encountered. Combined with an option to ignore a certain subset of coverage, this enables quickly querying if running the target with a given input resulted in new coverage or not.
 
