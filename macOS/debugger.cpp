@@ -257,7 +257,13 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   //try before second
   min_address = (region_max < 0x80000000) ? 0 : region_max - 0x80000000;
   max_address = (region_min < size) ? 0 : region_min - size;
-  return RemoteAllocateBefore(min_address, max_address, size, protection);
+  ret_address = RemoteAllocateBefore(min_address, max_address, size, protection);
+  if (ret_address != NULL) {
+    return ret_address;
+  }
+
+  // if all else fails, try within
+  return RemoteAllocateAfter(region_min, region_max, size, protection);
 }
 
 void *Debugger::RemoteAllocateBefore(uint64_t min_address,
@@ -576,7 +582,21 @@ void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
         goto retry_label;
       }
 
-      executable_ranges->push_back(new_range);
+      AddressRange *last_range = NULL;
+      if(!executable_ranges->empty()) {
+        last_range = &executable_ranges->back();
+      }
+      if(last_range && (last_range->to == new_range.from)) {
+        // merge ranges instead of creating new one
+        size_t last_range_size = last_range->to - last_range->from;
+        size_t merged_size = last_range_size + range_size;
+        last_range->data = (char *)realloc(last_range->data, merged_size);
+        memcpy(last_range->data + last_range_size, new_range.data, range_size);
+        last_range->to = new_range.to;
+        free(new_range.data);
+      } else {
+        executable_ranges->push_back(new_range);
+      }
       *code_size += range_size;
     }
 
