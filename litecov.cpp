@@ -752,6 +752,10 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
   olen = Pop(&dstate, destination_reg, encoded);
   WriteCode(module, encoded, olen);
 
+  if (sp_offset) {
+    OffsetStack(module, sp_offset);
+  }
+
   CmpCoverageRecord *cmp_record = new CmpCoverageRecord();
   cmp_record->ignored = false;
   cmp_record->width = operand_width;
