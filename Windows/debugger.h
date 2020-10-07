@@ -154,7 +154,7 @@ private:
 
   void StartProcess(char *cmd);
   void GetProcessPlatform();
-  DebuggerStatus DebugLoop();
+  DebuggerStatus DebugLoop(uint32_t timeout);
   int HandleDebuggerBreakpoint(void *address);
   void HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll);
   DebuggerStatus HandleExceptionInternal(EXCEPTION_RECORD *exception_record);
@@ -191,7 +191,6 @@ private:
   DEBUG_EVENT dbg_debug_event;
   DWORD dbg_continue_status;
   bool dbg_continue_needed;
-  uint64_t dbg_timeout_time;
   DebuggerStatus dbg_last_status;
 
   int wow64_target = 0;

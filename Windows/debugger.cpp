@@ -1263,7 +1263,7 @@ DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_rec
 }
 
 // standard debugger loop that listens to events in the target process
-DebuggerStatus Debugger::DebugLoop()
+DebuggerStatus Debugger::DebugLoop(uint32_t timeout)
 {
   DebuggerStatus ret;
   bool alive = true;
@@ -1280,8 +1280,14 @@ DebuggerStatus Debugger::DebugLoop()
   {
     have_thread_context = false;
 
+    uint64_t begin_time = GetCurTime();
     BOOL wait_ret = WaitForDebugEvent(DebugEv, 100);
+    uint64_t end_time = GetCurTime();
 
+    uint64_t time_elapsed = end_time - begin_time;
+    timeout = ((uint64_t)timeout >= time_elapsed) ? timeout - (uint32_t)time_elapsed : 0;
+
+    // printf("timeout: %u\n", timeout);
     // printf("time: %lld\n", get_cur_time_us());
 
     if (wait_ret) {
@@ -1290,7 +1296,7 @@ DebuggerStatus Debugger::DebugLoop()
       dbg_continue_needed = false;
     }
 
-    if (GetCurTime() > dbg_timeout_time) return DEBUGGER_HANGED;
+    if (timeout == 0) return DEBUGGER_HANGED;
 
     if (!wait_ret) {
       //printf("WaitForDebugEvent returned 0\n");
@@ -1476,10 +1482,7 @@ DebuggerStatus Debugger::Kill() {
 
   TerminateProcess(child_handle, 0);
   
-  // no timeout for process killing
-  dbg_timeout_time = 0xFFFFFFFFFFFFFFFFLL;
-
-  dbg_last_status = DebugLoop();
+  dbg_last_status = DebugLoop(0xFFFFFFFFUL);
   if (dbg_last_status != DEBUGGER_PROCESS_EXIT) {
     FATAL("Error killing target process\n");
   }
@@ -1542,8 +1545,7 @@ DebuggerStatus Debugger::Continue(uint32_t timeout) {
     return dbg_last_status;
   }
 
-  dbg_timeout_time = GetCurTime() + timeout;
-  dbg_last_status = DebugLoop();
+  dbg_last_status = DebugLoop(timeout);
 
   if (dbg_last_status == DEBUGGER_PROCESS_EXIT) {
     CloseHandle(child_handle);
