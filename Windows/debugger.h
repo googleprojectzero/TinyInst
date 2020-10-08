@@ -154,7 +154,7 @@ private:
 
   void StartProcess(char *cmd);
   void GetProcessPlatform();
-  DebuggerStatus DebugLoop(uint32_t timeout);
+  DebuggerStatus DebugLoop(uint32_t timeout, bool killing=false);
   int HandleDebuggerBreakpoint(void *address);
   void HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll);
   DebuggerStatus HandleExceptionInternal(EXCEPTION_RECORD *exception_record);

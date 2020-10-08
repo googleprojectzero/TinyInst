@@ -1256,14 +1256,15 @@ DebuggerStatus Debugger::HandleExceptionInternal(EXCEPTION_RECORD *exception_rec
     break;
 
   default:
-    printf("Unhandled exception %x\n", exception_record->ExceptionCode);
+    if (trace_debug_events)
+      printf("Unhandled exception %x\n", exception_record->ExceptionCode);
     dbg_continue_status = DBG_EXCEPTION_NOT_HANDLED;
     return DEBUGGER_CONTINUE;
   }
 }
 
 // standard debugger loop that listens to events in the target process
-DebuggerStatus Debugger::DebugLoop(uint32_t timeout)
+DebuggerStatus Debugger::DebugLoop(uint32_t timeout, bool killing)
 {
   DebuggerStatus ret;
   bool alive = true;
@@ -1312,9 +1313,13 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout)
     switch (DebugEv->dwDebugEventCode)
     {
     case EXCEPTION_DEBUG_EVENT:
-      ret = HandleExceptionInternal(&DebugEv->u.Exception.ExceptionRecord);
-      if (ret == DEBUGGER_CRASHED) OnCrashed(&last_exception);
-      if (ret != DEBUGGER_CONTINUE) return ret;
+      if (!killing) {
+        ret = HandleExceptionInternal(&DebugEv->u.Exception.ExceptionRecord);
+        if (ret == DEBUGGER_CRASHED) OnCrashed(&last_exception);
+        if (ret != DEBUGGER_CONTINUE) return ret;
+      } else {
+        dbg_continue_status = DBG_EXCEPTION_NOT_HANDLED;
+      }
       break;
 
     case CREATE_THREAD_DEBUG_EVENT:
@@ -1337,7 +1342,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout)
       break;
 
     case LOAD_DLL_DEBUG_EVENT: {
-      HandleDllLoadInternal(&DebugEv->u.LoadDll);
+      if(!killing) HandleDllLoadInternal(&DebugEv->u.LoadDll);
       CloseHandle(DebugEv->u.LoadDll.hFile);
       break;
     }
@@ -1482,7 +1487,7 @@ DebuggerStatus Debugger::Kill() {
 
   TerminateProcess(child_handle, 0);
   
-  dbg_last_status = DebugLoop(0xFFFFFFFFUL);
+  dbg_last_status = DebugLoop(0xFFFFFFFFUL, true);
   if (dbg_last_status != DEBUGGER_PROCESS_EXIT) {
     FATAL("Error killing target process\n");
   }
