@@ -1638,6 +1638,7 @@ void TinyInst::ClearInstrumentation(ModuleInfo *module) {
 }
 
 void TinyInst::InstrumentModule(ModuleInfo *module) {
+  if (instrumentation_disabled) return;
 
   // if the module was previously instrumented
   // just reuse the same data
@@ -1837,6 +1838,8 @@ void TinyInst::OnProcessExit() {
 void TinyInst::Init(int argc, char **argv) {
   // init the debugger first
   Debugger::Init(argc, argv);
+
+  instrumentation_disabled = false;
 
   patch_return_addresses = GetBinaryOption("-patch_return_addresses", argc, argv, false);
   instrument_cross_module_calls = GetBinaryOption("-instrument_cross_module_calls", argc, argv, true);

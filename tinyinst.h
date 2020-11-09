@@ -45,6 +45,14 @@ class TinyInst : public Debugger {
 public:
   virtual void Init(int argc, char **argv) override;
 
+  void EnableInstrumentation() {
+    instrumentation_disabled = false;
+  }
+
+  void DisableInstrumentation() {
+    instrumentation_disabled = true;
+  }
+
 protected:
 
   enum IndirectInstrumentation {
@@ -270,6 +278,8 @@ private:
   // but the assumption for now is that there won't be too many of
   // them so a flat structure shoudl be ok for now
   std::list<CrossModuleLink> cross_module_links;
+
+  bool instrumentation_disabled;
 };
 
 #endif // TINYINST_H
