@@ -24,14 +24,14 @@ ModuleCoverage::ModuleCoverage() {
   module_name[0] = 0;
 }
 
-ModuleCoverage::ModuleCoverage(char *name, std::set<uint64_t> offsets) {
-  strcpy(module_name, name);
+ModuleCoverage::ModuleCoverage(std::string& name, std::set<uint64_t> offsets) {
+  module_name = name;
   this->offsets = offsets;
 }
 
-ModuleCoverage *GetModuleCoverage(Coverage &coverage, char *name) {
+ModuleCoverage *GetModuleCoverage(Coverage &coverage, std::string& name) {
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
-    if (_stricmp(iter->module_name, name) == 0) {
+    if (_stricmp(iter->module_name.c_str(), name.c_str()) == 0) {
       return &(*iter);
     }
   }
@@ -169,7 +169,7 @@ void WriteCoverage(Coverage& coverage, char *filename) {
     for (auto offsetiter = iter->offsets.begin();
          offsetiter != iter->offsets.end(); offsetiter++)
     {
-      fprintf(fp, "%s+0x%llx\n", iter->module_name, *offsetiter);
+      fprintf(fp, "%s+0x%llx\n", iter->module_name.c_str(), *offsetiter);
     }
   }
   fclose(fp);
@@ -179,7 +179,9 @@ void WriteCoverageBinary(Coverage& coverage, FILE *fp) {
   uint64_t num_modules = coverage.size();
   fwrite(&num_modules, sizeof(num_modules), 1, fp);
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
-    fwrite(iter->module_name, sizeof(iter->module_name), 1, fp);
+    uint64_t str_size = iter->module_name.size();
+    fwrite(&str_size, sizeof(str_size), 1, fp);
+    fwrite(iter->module_name.data(), str_size, 1, fp);
     uint64_t num_offsets = iter->offsets.size();
     fwrite(&num_offsets, sizeof(num_offsets), 1, fp);
     uint64_t *offsets = (uint64_t *)malloc((size_t)num_offsets * sizeof(uint64_t));
@@ -208,7 +210,12 @@ void ReadCoverageBinary(Coverage& coverage, FILE *fp) {
   fread(&num_modules, sizeof(num_modules), 1, fp);
   for (size_t m = 0; m < num_modules; m++) {
     ModuleCoverage module_coverage;
-    fread(module_coverage.module_name, sizeof(module_coverage.module_name), 1, fp);
+    uint64_t str_size;
+    fread(&str_size, sizeof(str_size), 1, fp);
+    char* str_data = (char*)malloc(str_size);
+    fread(str_data, str_size, 1, fp);
+    module_coverage.module_name = std::string(str_data, str_size);
+    free(str_data);
     uint64_t num_offsets;
     fread(&num_offsets, sizeof(num_offsets), 1, fp);
     uint64_t *offsets = (uint64_t *)malloc((size_t)num_offsets * sizeof(uint64_t));
@@ -233,7 +240,7 @@ void ReadCoverageBinary(Coverage& coverage, char *filename) {
 
 void PrintCoverage(Coverage& coverage) {
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
-    printf("%s\n", iter->module_name);
+    printf("%s\n", iter->module_name.c_str());
     for (auto offsetiter = iter->offsets.begin();
       offsetiter != iter->offsets.end(); offsetiter++)
     {

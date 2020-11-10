@@ -1481,10 +1481,10 @@ void TinyInst::TranslateBasicBlockRecursive(char *address, ModuleInfo *module) {
 }
 
 // gets ModuleInfo for the module specified by name
-TinyInst::ModuleInfo *TinyInst::GetModuleByName(char *name) {
+TinyInst::ModuleInfo *TinyInst::GetModuleByName(const char *name) {
   for (auto iter = instrumented_modules.begin(); iter != instrumented_modules.end(); iter++) {
     ModuleInfo *cur_module = *iter;
-    if (_stricmp(cur_module->module_name, name) == 0) {
+    if (_stricmp(cur_module->module_name.c_str(), name) == 0) {
       return cur_module;
     }
   }
@@ -1555,7 +1555,7 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return;
 
-  printf("Exception in instrumented module %s\n", module->module_name);
+  printf("Exception in instrumented module %s\n", module->module_name.c_str());
   size_t offset = (size_t)address - (size_t)module->instrumented_code_remote;
   
   printf("Code before:\n");
@@ -1613,7 +1613,7 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   if (!GetRegion(module, (size_t)address)) return false;
 
   if (trace_module_entries) {
-    printf("TRACE: Entered module %s at address %p\n", module->module_name, address);
+    printf("TRACE: Entered module %s at address %p\n", module->module_name.c_str(), address);
   }
 
   size_t translated_address = GetTranslatedAddress(module, (size_t)address);
@@ -1647,7 +1647,7 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     FixCrossModuleLinks(module);
     printf("Module %s already instrumented, "
            "reusing instrumentation data\n",
-           module->module_name);
+           module->module_name.c_str());
     return;
   }
 
@@ -1693,7 +1693,7 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   FixCrossModuleLinks(module);
 
   printf("Instrumented module %s, code size: %zd\n",
-         module->module_name, module->code_size);
+         module->module_name.c_str(), module->code_size);
 
   OnModuleInstrumented(module);
 }
@@ -1717,7 +1717,7 @@ TinyInst::ModuleInfo *TinyInst::IsInstrumentModule(char *module_name) {
        iter != instrumented_modules.end(); iter++)
   {
     ModuleInfo *cur_module = *iter;
-    if (_stricmp(module_name, cur_module->module_name) == 0) {
+    if (_stricmp(module_name, cur_module->module_name.c_str()) == 0) {
       return cur_module;
     }
   }
@@ -1856,7 +1856,7 @@ void TinyInst::Init(int argc, char **argv) {
   GetOptionAll("-instrument_module", argc, argv, &module_names);
   for (auto iter = module_names.begin(); iter != module_names.end(); iter++) {
     ModuleInfo *new_module = new ModuleInfo();
-    strncpy(new_module->module_name, *iter, MAX_PATH);
+    new_module->module_name = *iter;
     instrumented_modules.push_back(new_module);
   }
 

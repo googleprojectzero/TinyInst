@@ -17,6 +17,7 @@ limitations under the License.
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
 
+#include <string>
 #include <list>
 #include "windows.h"
 
@@ -166,7 +167,7 @@ private:
   void DeleteBreakpoints();
   DWORD WindowsProtectionFlags(MemoryProtection protection);
   DWORD GetImageSize(void *base_address);
-  DWORD GetProcOffset(char *data, char *name);
+  DWORD GetProcOffset(char *data, const char *name);
   void *RemoteAllocateBefore(uint64_t min_address,
                              uint64_t max_address,
                              size_t size,
@@ -209,8 +210,8 @@ private:
   // persistence related
   int target_num_args;
   uint64_t target_offset;
-  char target_module[MAX_PATH];
-  char target_method[MAX_PATH];
+  std::string target_module;
+  std::string target_method;
   int calling_convention;
   void *target_address;
   void *saved_sp;

@@ -367,7 +367,7 @@ void LiteCov::GetCoverage(Coverage &coverage, bool clear_coverage) {
 // sets (new) coverage to ignore
 void LiteCov::IgnoreCoverage(Coverage &coverage) {
   for (auto iter = coverage.begin(); iter != coverage.end(); iter++) {
-    ModuleInfo *module = GetModuleByName(iter->module_name);
+    ModuleInfo *module = GetModuleByName(iter->module_name.c_str());
     if (!module) continue;
     ModuleCovData *data = (ModuleCovData *)module->client_data;
 

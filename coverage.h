@@ -17,25 +17,22 @@ limitations under the License.
 #ifndef COVERAGE_H
 #define COVERAGE_H
 
+#include <string>
 #include <set>
 #include <list>
-
-#ifndef MAX_PATH
-  #define MAX_PATH 260
-#endif
 
 class ModuleCoverage {
 public:
   ModuleCoverage();
-  ModuleCoverage(char *name, std::set<uint64_t> offsets);
+  ModuleCoverage(std::string& name, std::set<uint64_t> offsets);
 
-  char module_name[MAX_PATH];
+  std::string module_name;
   std::set<uint64_t> offsets;
 };
 
 typedef std::list<ModuleCoverage> Coverage;
 
-ModuleCoverage *GetModuleCoverage(Coverage &coverage, char *name);
+ModuleCoverage *GetModuleCoverage(Coverage &coverage, std::string &name);
 
 void PrintCoverage(Coverage& coverage);
 void WriteCoverage(Coverage& coverage, char *filename);

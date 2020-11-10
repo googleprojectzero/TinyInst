@@ -78,7 +78,7 @@ protected:
     ModuleInfo();
     void ClearInstrumentation();
 
-    char module_name[MAX_PATH];
+    std::string module_name;
     void *module_header;
     size_t min_address;
     size_t max_address;
@@ -155,7 +155,7 @@ protected:
 
   void CommitCode(ModuleInfo *module, size_t start_offset, size_t size);
 
-  ModuleInfo *GetModuleByName(char *name);
+  ModuleInfo *GetModuleByName(const char *name);
   ModuleInfo *GetModule(size_t address);
   ModuleInfo *GetModuleFromInstrumented(size_t address);
   AddressRange *GetRegion(ModuleInfo *module, size_t address);

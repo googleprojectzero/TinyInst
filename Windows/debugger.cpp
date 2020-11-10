@@ -708,7 +708,7 @@ void Debugger::AddBreakpoint(void *address, int type) {
 
 // damn it Windows, why don't you have a GetProcAddress
 // that works on another process
-DWORD Debugger::GetProcOffset(char *data, char *name) {
+DWORD Debugger::GetProcOffset(char *data, const char *name) {
   DWORD pe_offset;
   pe_offset = *((DWORD *)(data + 0x3C));
   char *pe = data + pe_offset;
@@ -771,7 +771,7 @@ char *Debugger::GetTargetAddress(HMODULE module) {
   {
     FATAL("Error reading target memory\n");
   }
-  DWORD offset = GetProcOffset((char *)modulebuf, target_method);
+  DWORD offset = GetProcOffset((char *)modulebuf, target_method.c_str());
   free(modulebuf);
   if (offset) {
     return (char *)module + offset;
@@ -808,7 +808,7 @@ char *Debugger::GetTargetAddress(HMODULE module) {
                                              0,
                                              NULL,
                                              0);
-  if (SymFromName(child_handle, target_method, pSymbol)) {
+  if (SymFromName(child_handle, target_method.c_str(), pSymbol)) {
     target_offset = (unsigned long)(pSymbol->Address - sym_base_address);
     method_address = base_of_dll + target_offset;
   }
@@ -821,7 +821,7 @@ char *Debugger::GetTargetAddress(HMODULE module) {
 void Debugger::OnModuleLoaded(void *module, char *module_name) {
   // printf("In on_module_loaded, name: %s, base: %p\n", module_name, module_info.lpBaseOfDll);
 
-  if (target_function_defined && _stricmp(module_name, target_module) == 0) {
+  if (target_function_defined && _stricmp(module_name, target_module.c_str()) == 0) {
     target_address = GetTargetAddress((HMODULE)module);
     if (!target_address) {
       FATAL("Error determining target method address\n");
@@ -1592,10 +1592,10 @@ void Debugger::Init(int argc, char **argv) {
                                        trace_debug_events);
 
   option = GetOption("-target_module", argc, argv);
-  if (option) strncpy(target_module, option, MAX_PATH);
+  if (option) target_module = option;
 
   option = GetOption("-target_method", argc, argv);
-  if (option) strncpy(target_method, option, MAX_PATH);
+  if (option) target_method = option;
 
   loop_mode = GetBinaryOption("-loop", argc, argv, loop_mode);
 
