@@ -1829,6 +1829,7 @@ void TinyInst::OnProcessExit() {
     ModuleInfo *cur_module = *iter;
     cur_module->loaded = false;
     cur_module->ClearInstrumentation();
+    OnModuleUninstrumented(cur_module);
   }
   // clear cross-module links
   ClearCrossModuleLinks();

@@ -103,7 +103,7 @@ void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
 
   CollectCoverage(data);
 
-  if (data->coverage_buffer_remote) {
+  if (data->coverage_buffer_remote && IsTargetAlive()) {
     RemoteFree(data->coverage_buffer_remote, data->coverage_buffer_size);
   }
 
