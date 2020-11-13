@@ -163,7 +163,7 @@ int main(int argc, char **argv)
     instrumentation->GetCoverage(newcoverage, true);
 
     for (auto iter = newcoverage.begin(); iter != newcoverage.end(); iter++) {
-      printf("Found %zd new offsets in %s\n", iter->offsets.size(), iter->module_name);
+      printf("Found %zd new offsets in %s\n", iter->offsets.size(), iter->module_name.c_str());
     }
 
     instrumentation->IgnoreCoverage(newcoverage);
