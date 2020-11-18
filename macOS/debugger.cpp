@@ -1012,6 +1012,11 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
           }
           break;
 
+        case SIGUSR1:
+          dbg_continue_status = KERN_FAILURE;
+          handle_exception_status = DEBUGGER_NORMAL;
+          break;
+
         default:
           goto default_label;
       }
