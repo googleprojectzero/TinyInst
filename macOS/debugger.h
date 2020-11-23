@@ -38,7 +38,6 @@ enum DebuggerStatus {
   DEBUGGER_CRASHED,
   DEBUGGER_HANGED,
   DEBUGGER_ATTACHED,
-  DEBUGGER_NORMAL
 };
 
 // From dyld SPI header dyld_process_info.h
