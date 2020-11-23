@@ -32,7 +32,7 @@ On macOS, [Guard Malloc](https://developer.apple.com/library/archive/documentati
 
 However, on some targets, additional workarounds might be needed.
 
-An issue was observed with some targets, where the combination of TinyInst and Guard Malloc put a process in a state where calls to (mach_)vm_allocate would fail, even though there was still sufficient free memory in the system and the target process address space (possibly due to an issue in the in macOS itself). This caused libgmalloc to be stuck in an infinite loop the first time it tried to allocate memory after a module was instrumented. The workaround for this is to have the modules loaded and instrumented before libgmalloc is loaded. This can be accomplished by the following flags:
+An issue was observed with some targets, where the combination of TinyInst and Guard Malloc put a process in a state where calls to (mach_)vm_allocate would fail, even though there was still sufficient free memory in the system and the target process address space (possibly due to an issue in macOS itself). This caused libgmalloc to be stuck in an infinite loop the first time it tried to allocate memory after a module was instrumented. The workaround for this is to have the modules loaded and instrumented before libgmalloc is loaded. This can be accomplished by the following flags:
 
 ```
 -target_env DYLD_INSERT_LIBRARIES=/path/to/instrumented/module.dylib:/usr/lib/libgmalloc.dylib -instrument_modules_on_load
