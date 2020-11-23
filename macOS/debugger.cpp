@@ -40,11 +40,11 @@ limitations under the License.
 #define BREAKPOINT_ENTRYPOINT 0x01
 #define BREAKPOINT_TARGET 0x02
 #define BREAKPOINT_NOTIFICATION 0x04
+#define BREAKPOINT_TARGET_END 0x08
 
 #define PERSIST_END_EXCEPTION 0x0F22
 
 extern char **environ;
-#define GMALLOC_ENV_CONFIG "DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib"
 
 std::unordered_map<task_t, class Debugger*> Debugger::task_to_debugger_map;
 std::mutex Debugger::map_mutex;
@@ -429,8 +429,12 @@ void Debugger::HandleTargetReachedInternal() {
     }
   }
 
-  size_t return_address = PERSIST_END_EXCEPTION;
-  RemoteWrite(saved_sp, &return_address, child_ptr_size);
+  if (target_end_detection == RETADDR_STACK_OVERWRITE) {
+    size_t return_address = PERSIST_END_EXCEPTION;
+    RemoteWrite(saved_sp, &return_address, child_ptr_size);
+  } else if (target_end_detection == RETADDR_BREAKPOINT) {
+    AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
+  }
 
   if (!target_reached) {
     target_reached = true;
@@ -444,9 +448,14 @@ void Debugger::HandleTargetEnded() {
     SetRegister(RIP, (size_t)target_address);
     SetRegister(RSP, (size_t)saved_sp);
 
-    size_t return_address = PERSIST_END_EXCEPTION;
-    RemoteWrite(saved_sp, &return_address, child_ptr_size);
-
+    if (target_end_detection == RETADDR_STACK_OVERWRITE) {
+      size_t return_address = PERSIST_END_EXCEPTION;
+      RemoteWrite(saved_sp, &return_address, child_ptr_size);
+    } else if (target_end_detection == RETADDR_BREAKPOINT) {
+      RemoteWrite(saved_sp, &saved_return_address, child_ptr_size);
+      AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
+    }
+    
     for (int arg_index = 0; arg_index < 6 && arg_index < target_num_args; ++arg_index) {
       SetRegister(ArgumentToRegister(arg_index), (size_t)saved_args[arg_index]);
     }
@@ -903,6 +912,13 @@ int Debugger::HandleDebuggerBreakpoint() {
       }
       HandleTargetReachedInternal();
   }
+  
+  if (breakpoint->type & BREAKPOINT_TARGET_END) {
+      if (trace_debug_events) {
+        SAY("Target method ended\n");
+      }
+      HandleTargetEnded();
+  }
 
   ret = breakpoint->type;
   free(breakpoint);
@@ -926,6 +942,9 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
     int breakpoint_type = HandleDebuggerBreakpoint();
     if (breakpoint_type & BREAKPOINT_TARGET) {
       handle_exception_status = DEBUGGER_TARGET_START;
+    }
+    if (breakpoint_type & BREAKPOINT_TARGET_END) {
+      handle_exception_status = DEBUGGER_TARGET_END;
     }
 
     if (breakpoint_type != BREAKPOINT_UNKNOWN) {
@@ -1028,6 +1047,34 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
   }
 }
 
+void Debugger::PrintContext() {
+  thread_act_t *threads = NULL;
+  mach_msg_type_number_t num_threads = 0;
+  kern_return_t ret = task_threads(mach_target->Task(), &threads, &num_threads);
+  if(ret != KERN_SUCCESS) return;
+  for(unsigned i=0;i<num_threads;i++) {
+    x86_thread_state64_t state;
+    unsigned int count = x86_THREAD_STATE64_COUNT;
+    ret = thread_get_state(threads[i], x86_THREAD_STATE64, (thread_state_t)&state, &count);
+    if(ret != KERN_SUCCESS) continue;
+    printf("thread %d\n", i);
+    printf("rip:%llx\n", state.__rip);
+    printf("rax:%llx rbx:%llx rcx:%llx rdx:%llx\n", state.__rax, state.__rbx, state.__rcx, state.__rdx);
+    printf("rsi:%llx rdi:%llx rbp:%llx rsp:%llx\n", state.__rsi, state.__rdi, state.__rbp, state.__rsp);
+    printf("r8:%llx r9:%llx r10:%llx r11:%llx\n", state.__r8, state.__r9, state.__r10, state.__r11);
+    printf("r12:%llx r13:%llx r14:%llx r15:%llx\n", state.__r12, state.__r13, state.__r14, state.__r15);
+    printf("stack:\n");
+    uint64_t stack[100];
+    mach_target->ReadMemory(state.__rsp, sizeof(stack), stack);
+    for(int j=0; j<(sizeof(stack)/sizeof(stack[0])); j++) {
+      printf("%llx\n", stack[j]);
+    }
+  }
+  for(unsigned i=0;i<num_threads;i++) {
+    mach_port_deallocate(mach_task_self(), threads[i]);
+  }
+  vm_deallocate(mach_task_self(), (vm_address_t)threads, num_threads * sizeof(thread_act_t));
+}
 
 DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   if (!IsTargetAlive()) {
@@ -1056,7 +1103,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
 
     uint64_t time_elapsed = end_time - begin_time;
     timeout = ((uint64_t)timeout >= time_elapsed) ? timeout - (uint32_t)time_elapsed : 0;
-
+    
     switch (krt) {
       case MACH_RCV_TIMED_OUT:
         if (timeout == 0) {
@@ -1221,15 +1268,14 @@ void Debugger::OnProcessExit() {
     }
     map_mutex.unlock();
 
-    int target_pid = mach_target->Pid();
-
     mach_target->CleanUp();
     delete mach_target;
     mach_target = NULL;
-
-    int status;
-    while(waitpid(target_pid, &status, WNOHANG) == target_pid);
   }
+  
+  // collect any zombie processes at this point
+  int status;
+  while(wait3(&status, WNOHANG, 0) > 0);
 }
 
 
@@ -1262,17 +1308,20 @@ char **Debugger::GetEnvp() {
     p++;
   }
 
-  int envp_size = environ_size + ((gmalloc_mode)?1:0);
+  int envp_size = environ_size + additional_env.size();
   char **envp = (char**)malloc(sizeof(char*)*(envp_size+1));
-  for (int i = 0; i < environ_size; ++i) {
+  int i;
+  for (i = 0; i < environ_size; ++i) {
     envp[i] = (char*)malloc(strlen(environ[i])+1);
     strcpy(envp[i], environ[i]);
   }
 
-  if (gmalloc_mode) {
-    envp[envp_size-1] = (char*)malloc(strlen(GMALLOC_ENV_CONFIG)+1);
-    strcpy(envp[envp_size-1], GMALLOC_ENV_CONFIG);
+  for(auto iter = additional_env.begin(); iter != additional_env.end(); iter++) {
+    envp[i] = (char*)malloc(iter->size() + 1);
+    strcpy(envp[i], iter->c_str());
+    i++;
   }
+  
   envp[envp_size] = NULL;
 
   return envp;
@@ -1377,7 +1426,6 @@ void Debugger::Init(int argc, char **argv) {
   trace_debug_events = false;
   loop_mode = false;
   target_function_defined = false;
-  gmalloc_mode = false;
 
   target_module[0] = 0;
   target_method[0] = 0;
@@ -1385,6 +1433,8 @@ void Debugger::Init(int argc, char **argv) {
   saved_args = NULL;
   target_num_args = 0;
   target_address = NULL;
+  
+  target_end_detection = RETADDR_STACK_OVERWRITE;
 
   dbg_last_status = DEBUGGER_NONE;
 
@@ -1393,6 +1443,12 @@ void Debugger::Init(int argc, char **argv) {
   request_buffer = (mach_msg_header_t *)malloc(sizeof(union __RequestUnion__catch_mach_exc_subsystem));
   reply_buffer = (mach_msg_header_t *)malloc(sizeof(union __ReplyUnion__catch_mach_exc_subsystem));
 
+  std::list<char *> env_options;
+  GetOptionAll("-target_env", argc, argv, &env_options);
+  for (auto iter = env_options.begin(); iter != env_options.end(); iter++) {
+    additional_env.push_back(*iter);
+  }
+  
   char *option;
   trace_debug_events = GetBinaryOption("-trace_debug_events",
                                        argc, argv,
@@ -1405,7 +1461,6 @@ void Debugger::Init(int argc, char **argv) {
   if (option) strncpy(target_method, option, PATH_MAX);
 
   loop_mode = GetBinaryOption("-loop", argc, argv, loop_mode);
-  gmalloc_mode = GetBinaryOption("-gmalloc", argc, argv, gmalloc_mode);
 
   option = GetOption("-nargs", argc, argv);
   if (option) target_num_args = atoi(option);
@@ -1423,6 +1478,13 @@ void Debugger::Init(int argc, char **argv) {
 
   if (loop_mode && !target_function_defined) {
     FATAL("Target function needs to be defined to use the loop mode\n");
+  }
+  
+  // avoid overwriting return address in case we have libgmalloc in env
+  for (auto iter = additional_env.begin(); iter != additional_env.end(); iter++) {
+    if (iter->find("libgmalloc") != std::string::npos) {
+      target_end_detection = RETADDR_BREAKPOINT;
+    }
   }
 
   if (target_num_args) {

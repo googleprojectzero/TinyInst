@@ -280,6 +280,7 @@ private:
   std::list<CrossModuleLink> cross_module_links;
 
   bool instrumentation_disabled;
+  bool instrument_modules_on_load;
 };
 
 #endif // TINYINST_H

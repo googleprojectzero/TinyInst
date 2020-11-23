@@ -1565,6 +1565,7 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   for (size_t i = offset_from; i < offset; i++) {
     printf("%02x ", (unsigned char)(module->instrumented_code_local[i]));
   }
+  printf("\n");
   printf("Code after:\n");
   size_t offset_to = offset + 0x10;
   if (offset_to > module->instrumented_code_size)
@@ -1572,6 +1573,7 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   for (size_t i = offset; i < offset_to; i++) {
     printf("%02x ", (unsigned char)(module->instrumented_code_local[i]));
   }
+  printf("\n");
 }
 
 // gets the address in the instrumented code corresponding to
@@ -1740,7 +1742,9 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
                &target_module->max_address);
   target_module->loaded = true;
 
-  if (target_function_defined) {
+  if(instrument_modules_on_load) {
+    InstrumentModule(target_module);
+  } else if (target_function_defined) {
     if (target_reached) InstrumentModule(target_module);
   } else if (child_entrypoint_reached) {
     InstrumentModule(target_module);
@@ -1778,13 +1782,13 @@ void TinyInst::OnModuleUnloaded(void *module) {
 void TinyInst::OnTargetMethodReached() {
   Debugger::OnTargetMethodReached();
 
-  if (target_function_defined) InstrumentAllLoadedModules();
+  if (target_function_defined && !instrument_modules_on_load) InstrumentAllLoadedModules();
 }
 
 void TinyInst::OnEntrypoint() {
   Debugger::OnEntrypoint();
 
-  if(!target_function_defined) InstrumentAllLoadedModules();
+  if(!target_function_defined && !instrument_modules_on_load) InstrumentAllLoadedModules();
 }
 
 
@@ -1842,6 +1846,7 @@ void TinyInst::Init(int argc, char **argv) {
 
   instrumentation_disabled = false;
 
+  instrument_modules_on_load = GetBinaryOption("-instrument_modules_on_load", argc, argv, false);
   patch_return_addresses = GetBinaryOption("-patch_return_addresses", argc, argv, false);
   instrument_cross_module_calls = GetBinaryOption("-instrument_cross_module_calls", argc, argv, true);
   persist_instrumentation_data = GetBinaryOption("-persist_instrumentation_data", argc, argv, true);

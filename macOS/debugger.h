@@ -125,6 +125,11 @@ protected:
     R15,
     RIP
   };
+  
+  enum TargetEndDetection {
+    RETADDR_STACK_OVERWRITE,
+    RETADDR_BREAKPOINT
+  };
 
   struct AddressRange {
     size_t from;
@@ -167,8 +172,9 @@ protected:
   bool trace_debug_events;
   bool attach_mode;
   bool loop_mode;
-  bool gmalloc_mode;
 
+  std::list<std::string> additional_env;
+  
   bool child_entrypoint_reached;
   bool target_reached;
 
@@ -248,6 +254,8 @@ private:
   void AttachToProcess();
   void HandleExceptionInternal(MachException *mach_exception);
   int HandleDebuggerBreakpoint();
+  
+  void PrintContext();
 
   DebuggerStatus handle_exception_status;
   DebuggerStatus dbg_last_status;
@@ -316,6 +324,7 @@ private:
   void *saved_sp;
   void *saved_return_address;
   void **saved_args;
+  TargetEndDetection target_end_detection;
 
   //DYLD SPI
   void *(*m_dyld_process_info_create)(task_t task,
