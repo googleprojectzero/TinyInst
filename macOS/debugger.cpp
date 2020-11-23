@@ -943,6 +943,10 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
   }
 
   switch(mach_exception->exception_type) {
+    case EXC_SYSCALL:
+      handle_exception_status = DEBUGGER_CONTINUE;
+      dbg_continue_status = KERN_SUCCESS;
+      break;
     case EXC_RESOURCE:
       handle_exception_status = DEBUGGER_HANGED;
       break;
