@@ -24,7 +24,7 @@ limitations under the License.
 
 ## TinyInst and Guard Malloc
 
-On macOS, Guard Malloc is a special version of the malloc library that makes it easier to catch certain types of memory safety issues. To enable Guard Malloc for a target process running under TinyInst, use the following flag:
+On macOS, [Guard Malloc](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/ManagingMemory/Articles/MallocDebug.html) is a special version of the malloc library that makes it easier to catch certain types of memory safety issues. To enable Guard Malloc for a target process running under TinyInst, use the following flag:
 
 ```
 -target_env DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib
