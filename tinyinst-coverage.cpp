@@ -118,9 +118,6 @@ void RunTarget(int argc, char **argv, unsigned int pid, uint32_t timeout) {
       FATAL("Unexpected status received from the debugger\n");
     }
     break;
-  case DEBUGGER_NORMAL:
-    printf("Process finished normally\n");
-    break;
   default:
     FATAL("Unexpected status received from the debugger\n");
     break;
