@@ -70,7 +70,6 @@ MachTarget::MachTarget(pid_t target_pid): pid(target_pid), m_page_size(INVALID_P
     FATAL("Error (%s) registering the exception port with the target process\n", mach_error_string(krt));
   }
 
-  shm_ports.clear();
 }
 
 
@@ -158,20 +157,12 @@ void MachTarget::CleanUp() {
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) destroying exception port\n", mach_error_string(krt));
   }
-  for (auto iter = shm_ports.begin(); 
-      iter != shm_ports.end(); iter++) {
-    krt = mach_port_destroy(mach_task_self(), iter->second);
-    if (krt != KERN_SUCCESS) {
-      FATAL("Error (%s) destroying share mem port\n", mach_error_string(krt));
-    }
-  }
 
   krt = mach_port_deallocate(mach_task_self(), task);
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) deallocating task port", mach_error_string(krt));
   }
 
-  shm_ports.clear();
   task = TASK_NULL;
   exception_port = MACH_PORT_NULL;
 }

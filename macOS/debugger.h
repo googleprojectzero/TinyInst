@@ -202,6 +202,7 @@ private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
   std::unordered_map<mach_vm_address_t, mach_vm_address_t> share_mem_map;
+  std::unordered_map<mach_vm_address_t, mach_port_t> share_mem_port;
 
   struct MachException {
     mach_port_t exception_port;

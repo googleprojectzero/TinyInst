@@ -26,7 +26,6 @@ private:
   pid_t pid;
   task_t task;
   mach_port_t exception_port;
-  std::unordered_map<mach_vm_address_t, mach_port_t> shm_ports;
   vm_size_t m_page_size;
   int pointer_size;
 
@@ -44,7 +43,6 @@ public:
   pid_t Pid() { return pid; }
   task_t Task() { return task; }
   mach_port_t ExceptionPort() { return exception_port; }
-  std::unordered_map<mach_vm_address_t, mach_port_t> ShmPorts() { return shm_ports; }
 
   vm_size_t PageSize();
 

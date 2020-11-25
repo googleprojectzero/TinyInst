@@ -74,7 +74,7 @@ void Debugger::FreeShare(void *address, size_t size) {
     return;
   }
 
-  mach_port_t shm_port = mach_target->ShmPorts()[(mach_vm_address_t)address];
+  mach_port_t shm_port = share_mem_map[(mach_vm_address_t)address];
   kern_return_t krt = mach_port_destroy(mach_target->Task(), shm_port);
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) destroy port for shared memory @ 0x%llx\n", mach_error_string(krt), (mach_vm_address_t)address);
@@ -280,7 +280,7 @@ void *Debugger::MakeEntryRemoteAddress(mach_vm_address_t address, size_t size) {
   if (ret != KERN_SUCCESS) {
     FATAL("Error (%s) map memory\n", mach_error_string(ret));
   }
-  mach_target->ShmPorts()[map_address] = shm_port;
+  share_mem_port[map_address] = shm_port;
   share_mem_map[address] = map_address;
 
   return (void *)map_address;
@@ -1441,6 +1441,7 @@ void Debugger::Init(int argc, char **argv) {
   target_address = NULL;
 
   dbg_last_status = DEBUGGER_NONE;
+  share_mem_port.clear();
 
   dbg_continue_needed = false;
   dbg_reply_needed = false;
