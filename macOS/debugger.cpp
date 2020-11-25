@@ -87,11 +87,18 @@ void Debugger::FreeShare(void *address, size_t size) {
 }
 
 void Debugger::RemoteFree(void *address, size_t size) {
+  if (share_mem_map.find((mach_vm_address_t)address) != share_mem_map.end()) {
+    FreeShare((void *)share_mem_map[(mach_vm_address_t)address], size);
+  }
   mach_target->FreeMemory((uint64_t)address, size);
 }
 
 void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
-  mach_target->ReadMemory((uint64_t)address, size, buffer);
+  if (share_mem_map.find((mach_vm_address_t)address) != share_mem_map.end()) {
+    memcpy(buffer, (void *)share_mem_map[(mach_vm_address_t)address], size);
+  } else {
+    mach_target->ReadMemory((uint64_t)address, size, buffer);
+  }
 }
 
 void Debugger::RemoteWrite(void *address, const void *buffer, size_t size) {
@@ -259,6 +266,8 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
 
 void *Debugger::MakeEntryRemoteAddress(mach_vm_address_t address, size_t size) {
   mach_port_t shm_port;
+  if (address == 0)
+    return NULL;
 
   memory_object_size_t memoryObjectSize = round_page(size);
   kern_return_t ret = mach_make_memory_entry_64(mach_target->Task(), &memoryObjectSize, address, VM_PROT_READ, &shm_port, MACH_PORT_NULL);
@@ -272,6 +281,7 @@ void *Debugger::MakeEntryRemoteAddress(mach_vm_address_t address, size_t size) {
     FATAL("Error (%s) map memory\n", mach_error_string(ret));
   }
   mach_target->ShmPorts()[map_address] = shm_port;
+  share_mem_map[address] = map_address;
 
   return (void *)map_address;
 }
@@ -287,6 +297,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   max_address = (UINT64_MAX - region_min < 0x80000000) ? UINT64_MAX : region_min + 0x80000000;
   void *ret_address = RemoteAllocateAfter(min_address, max_address, size, protection);
   if (ret_address != NULL) {
+    MakeEntryRemoteAddress((mach_vm_address_t)ret_address, size);
     return ret_address;
   }
 
@@ -295,11 +306,14 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   max_address = (region_min < size) ? 0 : region_min - size;
   ret_address = RemoteAllocateBefore(min_address, max_address, size, protection);
   if (ret_address != NULL) {
+    MakeEntryRemoteAddress((mach_vm_address_t)ret_address, size);
     return ret_address;
   }
 
   // if all else fails, try within
-  return RemoteAllocateAfter(region_min, region_max, size, protection);
+  ret_address = RemoteAllocateAfter(region_min, region_max, size, protection);
+  MakeEntryRemoteAddress((mach_vm_address_t)ret_address, size);
+  return ret_address;
 }
 
 void *Debugger::RemoteAllocateBefore(uint64_t min_address,

@@ -49,10 +49,6 @@ public:
 
   unsigned char *coverage_buffer_remote;
 
-#ifdef __APPLE__
-  unsigned char *share_coverage_buffer;
-#endif
-
   size_t coverage_buffer_size;
   size_t coverage_buffer_next;
 
