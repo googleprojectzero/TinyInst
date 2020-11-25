@@ -158,6 +158,8 @@ protected:
   void GetImageSize(void *base_address, size_t *min_address, size_t *max_address);
 
   MachTarget *mach_target;
+
+  void FreeShare(void *address, size_t size);
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
@@ -175,6 +177,9 @@ protected:
   int32_t child_ptr_size = sizeof(void*);
 
   // helper functions
+
+  void *MakeEntryRemoteAddress(mach_vm_address_t address, size_t size);
+
   void *RemoteAllocateNear(uint64_t region_min,
                            uint64_t region_max,
                            size_t size,

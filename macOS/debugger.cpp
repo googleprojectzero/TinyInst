@@ -68,6 +68,24 @@ vm_prot_t Debugger::MacOSProtectionFlags(MemoryProtection memory_protection) {
   }
 }
 
+void Debugger::FreeShare(void *address, size_t size) {
+  if (size == 0) {
+    WARN("FreeShare is called with size == 0\n");
+    return;
+  }
+
+  mach_port_t shm_port = mach_target->ShmPorts()[(mach_vm_address_t)address];
+  kern_return_t krt = mach_port_destroy(mach_target->Task(), shm_port);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) destroy port for shared memory @ 0x%llx\n", mach_error_string(krt), (mach_vm_address_t)address);
+  }
+
+  krt = mach_vm_deallocate(mach_task_self(), (mach_vm_address_t)address, (mach_vm_size_t)size);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), (mach_vm_address_t)address);
+  }
+}
+
 void Debugger::RemoteFree(void *address, size_t size) {
   mach_target->FreeMemory((uint64_t)address, size);
 }
@@ -239,6 +257,24 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
   }
 }
 
+void *Debugger::MakeEntryRemoteAddress(mach_vm_address_t address, size_t size) {
+  mach_port_t shm_port;
+
+  memory_object_size_t memoryObjectSize = round_page(size);
+  kern_return_t ret = mach_make_memory_entry_64(mach_target->Task(), &memoryObjectSize, address, VM_PROT_READ, &shm_port, MACH_PORT_NULL);
+  if (ret != KERN_SUCCESS) {
+    FATAL("Error (%s) remote allocate share memory\n", mach_error_string(ret));
+  }
+
+  mach_vm_address_t map_address;
+  ret = mach_vm_map(mach_task_self(), &map_address, memoryObjectSize, 0, VM_FLAGS_ANYWHERE, shm_port, 0, 0, VM_PROT_READ, VM_PROT_READ, VM_INHERIT_NONE);
+  if (ret != KERN_SUCCESS) {
+    FATAL("Error (%s) map memory\n", mach_error_string(ret));
+  }
+  mach_target->ShmPorts()[map_address] = shm_port;
+
+  return (void *)map_address;
+}
 
 void *Debugger::RemoteAllocateNear(uint64_t region_min,
                                         uint64_t region_max,

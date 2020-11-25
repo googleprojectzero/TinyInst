@@ -19,12 +19,14 @@ limitations under the License.
 
 #include <mach/mach.h>
 #include <mach-o/dyld_images.h>
+#include <unordered_map>
 
 class MachTarget {
 private:
   pid_t pid;
   task_t task;
   mach_port_t exception_port;
+  std::unordered_map<mach_vm_address_t, mach_port_t> shm_ports;
   vm_size_t m_page_size;
   int pointer_size;
 
@@ -42,6 +44,7 @@ public:
   pid_t Pid() { return pid; }
   task_t Task() { return task; }
   mach_port_t ExceptionPort() { return exception_port; }
+  std::unordered_map<mach_vm_address_t, mach_port_t> ShmPorts() { return shm_ports; }
 
   vm_size_t PageSize();
 
@@ -59,6 +62,7 @@ public:
   kern_return_t WaitForException(uint32_t timeout, mach_msg_header_t *req, uint32_t size);
   void ReplyToException(mach_msg_header_t *rpl);
 
+  void FreeShareMemory(uint64_t address, size_t size);
   void FreeMemory(uint64_t address, size_t size);
   void ReadMemory(uint64_t address, size_t size, void *buf);
   void WriteMemory(uint64_t address, const void *buf, size_t size);

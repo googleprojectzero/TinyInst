@@ -41,6 +41,7 @@ ModuleCovData::ModuleCovData() {
 // does not clear collected coverage and ignore coverage
 void ModuleCovData::ClearInstrumentationData() {
   coverage_buffer_remote = NULL;
+  share_coverage_buffer = NULL;
   coverage_buffer_size = 0;
   coverage_buffer_next = 0;
   has_remote_coverage = false;
@@ -96,6 +97,17 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
   if (!data->coverage_buffer_remote) {
     FATAL("Could not allocate coverage buffer");
   }
+
+#ifdef __APPLE__
+  data->share_coverage_buffer = 
+    (unsigned char *)MakeEntryRemoteAddress(
+      (mach_vm_address_t)data->coverage_buffer_remote, 
+      data->coverage_buffer_size);
+  if (!data->share_coverage_buffer) {
+    FATAL("Could not allocate share coverage buffer");
+  }
+#endif
+
 }
 
 void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
@@ -105,7 +117,15 @@ void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
 
   if (data->coverage_buffer_remote) {
     RemoteFree(data->coverage_buffer_remote, data->coverage_buffer_size);
+    data->coverage_buffer_remote = NULL;
   }
+
+#ifdef __APPLE__
+  if (data->share_coverage_buffer) {
+    FreeShare(data->share_coverage_buffer, data->coverage_buffer_size);
+    data->share_coverage_buffer = NULL;
+  }
+#endif
 
   data->ClearInstrumentationData();
 }
@@ -305,11 +325,17 @@ void LiteCov::ClearCoverage() {
 
 // fetches and decodes coverage from the remote buffer
 void LiteCov::CollectCoverage(ModuleCovData *data) {
+#ifdef __APPLE__
+  if (!data->has_remote_coverage) return;
+
+  unsigned char *buf = data->share_coverage_buffer;
+#else
   if (!IsTargetAlive() || !data->has_remote_coverage) return;
 
   unsigned char *buf = (unsigned char *)malloc(data->coverage_buffer_next);
 
   RemoteRead(data->coverage_buffer_remote, buf, data->coverage_buffer_next);
+#endif
 
   for (size_t i = 0; i < data->coverage_buffer_next; i++) {
     if (buf[i]) {
@@ -325,7 +351,9 @@ void LiteCov::CollectCoverage(ModuleCovData *data) {
     }
   }
 
+#ifndef __APPLE__
   free(buf);
+#endif
 
   ClearRemoteBuffer(data);
 }
