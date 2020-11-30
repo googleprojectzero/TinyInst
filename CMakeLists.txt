@@ -32,8 +32,6 @@ set (cross_platform_files
      litecov.cpp
      x86_helpers.h
      x86_helpers.cpp
-     macos_cov.h
-     macos_cov.cpp
 )
 
 if (WIN32)
@@ -94,11 +92,3 @@ add_executable(litecov
 )
 
 target_link_libraries(litecov tinyinst)
-
-project("macos_cov")
-
-add_executable(macos_cov
-  macos_cov.cpp
-)
-
-target_link_libraries(macos_cov tinyinst)

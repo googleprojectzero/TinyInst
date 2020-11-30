@@ -91,7 +91,7 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
                                         (uint64_t)module->instrumented_code_remote
                                           + module->instrumented_code_size,
                                         data->coverage_buffer_size,
-                                        READONLY);
+                                        READONLY, true);
 
   if (!data->coverage_buffer_remote) {
     FATAL("Could not allocate coverage buffer");
@@ -327,6 +327,9 @@ void LiteCov::CollectCoverage(ModuleCovData *data) {
     }
   }
 
+  free(buf);
+
+  data->has_remote_coverage = false;
   ClearRemoteBuffer(data);
 }
 
@@ -401,9 +404,9 @@ bool LiteCov::HasNewCoverage() {
 
 void LiteCov::OnProcessExit() {
   TinyInst::OnProcessExit();
-  if (IsTargetAlive()) {
-    CollectCoverage();
-  }
+  CollectCoverage();
+
+  TinyInst::ClearSharedMemory();
 }
 
 uint64_t LiteCov::GetCmpCode(size_t bb_offset, size_t cmp_offset, int bits_match) {

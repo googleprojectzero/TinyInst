@@ -40,6 +40,16 @@ enum DebuggerStatus {
   DEBUGGER_ATTACHED,
 };
 
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator () (const std::pair<T1,T2> &p) const {
+        auto h1 = std::hash<T1>{}(p.first);
+        auto h2 = std::hash<T2>{}(p.second);
+
+        return h1 ^ h2;
+    }
+};
+
 // From dyld SPI header dyld_process_info.h
 typedef void *dyld_process_info;
 struct dyld_process_cache_info {
@@ -159,7 +169,8 @@ protected:
 
   MachTarget *mach_target;
 
-  void FreeShare(void *address, size_t size);
+  void ClearSharedMemory();
+  void FreeSharedMemory(void *address, size_t size);
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
@@ -178,12 +189,13 @@ protected:
 
   // helper functions
 
-  void *MakeEntryRemoteAddress(mach_vm_address_t address, size_t size);
+  void *MakeSharedMemory(mach_vm_address_t address, size_t size);
 
   void *RemoteAllocateNear(uint64_t region_min,
                            uint64_t region_max,
                            size_t size,
-                           MemoryProtection protection);
+                           MemoryProtection protection,
+			   bool use_shared_memory = false);
 
   void ExtractCodeRanges(void *base_address,
                          size_t min_address,
@@ -201,8 +213,8 @@ protected:
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
-  std::unordered_map<mach_vm_address_t, mach_vm_address_t> share_mem_map;
-  std::unordered_map<mach_vm_address_t, mach_port_t> share_mem_port;
+  std::unordered_map<mach_vm_address_t, std::pair<mach_vm_address_t, size_t> > share_mem_map;
+  std::unordered_map<std::pair<mach_vm_address_t, size_t>, mach_port_t, pair_hash> share_mem_port;
 
   struct MachException {
     mach_port_t exception_port;

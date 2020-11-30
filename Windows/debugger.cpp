@@ -291,7 +291,8 @@ DWORD Debugger::WindowsProtectionFlags(MemoryProtection protection) {
 void *Debugger::RemoteAllocateNear(uint64_t region_min,
   uint64_t region_max,
   size_t size,
-  MemoryProtection protection)
+  MemoryProtection protection,
+  bool use_shared_memory);
 {
   void *ret = NULL;
 

@@ -122,7 +122,8 @@ protected:
   void *RemoteAllocateNear(uint64_t region_min,
     uint64_t region_max,
     size_t size,
-    MemoryProtection protection);
+    MemoryProtection protection,
+    bool use_shared_memory = false);
 
   void ExtractCodeRanges(void *module_base,
                          size_t min_address,
