@@ -22,6 +22,7 @@ limitations under the License.
 #include <limits.h>
 #include <unordered_map>
 #include <list>
+#include <vector>
 #include <mutex>
 
 #include "machtarget.h"
@@ -40,14 +41,35 @@ enum DebuggerStatus {
   DEBUGGER_ATTACHED,
 };
 
-struct pair_hash {
-    template <class T1, class T2>
-    std::size_t operator () (const std::pair<T1,T2> &p) const {
-        auto h1 = std::hash<T1>{}(p.first);
-        auto h2 = std::hash<T2>{}(p.second);
+class SharedMemory {
+public:
+  SharedMemory(mach_vm_address_t la,
+		mach_vm_address_t ra,
+		mach_vm_size_t s,
+		mach_port_t p) : local_address(la), remote_address(ra), size(s), port(p) {}
+  SharedMemory(const SharedMemory& other) : local_address(other.local_address),
+					    remote_address(other.remote_address),
+					    size(other.size),
+					    port(other.port) {}
+  SharedMemory &operator=(const SharedMemory& other) {
+    local_address = other.local_address;
+    remote_address = other.remote_address;
+    size = other.size;
+    port = other.port;
+    return *this;
+  }
 
-        return h1 ^ h2;
-    }
+  bool operator==(SharedMemory const& rhs) {
+    return local_address == rhs.local_address &&
+	  remote_address == rhs.remote_address &&
+	  size == rhs.size &&
+	  port == rhs.port;
+  }
+
+  mach_vm_address_t local_address;
+  mach_vm_address_t remote_address;
+  mach_vm_size_t size;
+  mach_port_t port;
 };
 
 // From dyld SPI header dyld_process_info.h
@@ -170,7 +192,7 @@ protected:
   MachTarget *mach_target;
 
   void ClearSharedMemory();
-  void FreeSharedMemory(void *address, size_t size);
+  void FreeSharedMemory(SharedMemory sm, int index=-1);
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
@@ -213,8 +235,7 @@ protected:
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
-  std::unordered_map<mach_vm_address_t, std::pair<mach_vm_address_t, size_t> > share_mem_map;
-  std::unordered_map<std::pair<mach_vm_address_t, size_t>, mach_port_t, pair_hash> share_mem_port;
+  std::vector<SharedMemory> shared_memory;
 
   struct MachException {
     mach_port_t exception_port;
