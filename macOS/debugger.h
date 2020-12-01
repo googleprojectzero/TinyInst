@@ -192,7 +192,7 @@ protected:
   MachTarget *mach_target;
 
   void ClearSharedMemory();
-  void FreeSharedMemory(SharedMemory sm, int index=-1);
+  void FreeSharedMemory(SharedMemory sm);
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
@@ -235,7 +235,7 @@ protected:
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
-  std::vector<SharedMemory> shared_memory;
+  std::list<SharedMemory> shared_memory;
 
   struct MachException {
     mach_port_t exception_port;
@@ -283,6 +283,7 @@ private:
   MachException *mach_exception;
   Exception last_exception;
 
+  std::list<SharedMemory>::iterator FreeSharedMemory(std::list<SharedMemory>::iterator it);
   void StartProcess(int argc, char **argv);
   DebuggerStatus DebugLoop(uint32_t timeout);
   void AttachToProcess();

@@ -69,15 +69,14 @@ vm_prot_t Debugger::MacOSProtectionFlags(MemoryProtection memory_protection) {
 }
 
 void Debugger::ClearSharedMemory() {
-  for (int i=0; i<shared_memory.size(); ) {
-    SharedMemory sm = shared_memory.at(i);
-    FreeSharedMemory(sm, i);
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ) {
+    iter = FreeSharedMemory(iter);
   }
 
   shared_memory.clear();
 }
 
-void Debugger::FreeSharedMemory(SharedMemory sm, int index) {
+void Debugger::FreeSharedMemory(SharedMemory sm) {
   if (sm.size == 0) {
     WARN("FreeShare is called with size == 0\n");
     return;
@@ -93,20 +92,32 @@ void Debugger::FreeSharedMemory(SharedMemory sm, int index) {
     FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), sm.remote_address);
   }
 
-  std::list<SharedMemory>::iterator it;
-  if (index == -1) {
-    shared_memory.erase(std::remove(shared_memory.begin(), shared_memory.end(), sm), shared_memory.end());
-  } else {
-    shared_memory.erase(shared_memory.begin() + index);
+  shared_memory.erase(std::remove(shared_memory.begin(), shared_memory.end(), sm), shared_memory.end());
+}
+
+std::list<SharedMemory>::iterator Debugger::FreeSharedMemory(std::list<SharedMemory>::iterator it) {
+  if (it->size == 0) {
+    WARN("FreeShare is called with size == 0\n");
+    return;
   }
 
+  kern_return_t krt = mach_port_destroy(mach_task_self(), it->port);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) destroy port for local shared memory @ 0x%llx\n", mach_error_string(krt), it->local_address);
+  }
+
+  krt = mach_vm_deallocate(mach_task_self(), it->remote_address, it->size);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), it->remote_address);
+  }
+
+  return shared_memory.erase(it);
 }
 
 void Debugger::RemoteFree(void *address, size_t size) {
-  for (int i=0; i<shared_memory.size(); ++i) {
-    SharedMemory sm = shared_memory.at(i);
-    if (sm.remote_address == (mach_vm_address_t)address) {
-      FreeSharedMemory(sm, i);
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); iter++) {
+    if (iter->remote_address == (mach_vm_address_t)address) {
+      FreeSharedMemory(iter);
       break;
     }
   }
@@ -114,18 +125,18 @@ void Debugger::RemoteFree(void *address, size_t size) {
 }
 
 void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
-  mach_vm_address_t found = 0;
+  mach_vm_address_t shared_memory_address = 0;
   for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ++iter) {
     if (iter->remote_address <= (mach_vm_address_t)address &&
 	size <= iter->size &&
 	(mach_vm_address_t)address <= iter->remote_address + iter->size) {
-      found = iter->local_address + ((mach_vm_address_t)address - iter->remote_address);
+      shared_memory_address = iter->local_address + ((mach_vm_address_t)address - iter->remote_address);
       break;
     }
   }
 
-  if (found) {
-    memcpy(buffer, (void *)found, size);
+  if (shared_memory_address) {
+    memcpy(buffer, (void *)shared_memory_address, size);
   } else {
     mach_target->ReadMemory((uint64_t)address, size, buffer);
   }
@@ -1316,6 +1327,8 @@ void Debugger::OnProcessExit() {
     mach_target->CleanUp();
     delete mach_target;
     mach_target = NULL;
+
+    ClearSharedMemory();
 
     int status;
     while(waitpid(target_pid, &status, WNOHANG) == target_pid);

@@ -403,10 +403,8 @@ bool LiteCov::HasNewCoverage() {
 }
 
 void LiteCov::OnProcessExit() {
-  TinyInst::OnProcessExit();
   CollectCoverage();
-
-  TinyInst::ClearSharedMemory();
+  TinyInst::OnProcessExit();
 }
 
 uint64_t LiteCov::GetCmpCode(size_t bb_offset, size_t cmp_offset, int bits_match) {
