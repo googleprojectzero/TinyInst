@@ -1329,10 +1329,11 @@ void Debugger::OnProcessExit() {
     mach_target = NULL;
 
     ClearSharedMemory();
-
-    int status;
-    while(waitpid(target_pid, &status, WNOHANG) == target_pid);
   }
+
+  // collect any zombie processes at this point
+  int status;
+  while(wait3(&status, WNOHANG, 0) > 0);
 }
 
 
