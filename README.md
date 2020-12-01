@@ -196,6 +196,9 @@ TinyInst allows user to define a target method. If a target method is defined, n
 
 `-callcon [ms64|stdcall|fastcall|thiscall]` - calling convention target method uses. To be used together with `-loop`
 
+### Other
+
+`-target_env key=value` - [currently macOS only] specifies an additional environment variable to pass to the target process. Multiple `-target_env` options can be specified to pass multiple environment variables.
 
 ## Coverage module
 
