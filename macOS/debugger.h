@@ -197,7 +197,6 @@ protected:
   MachTarget *mach_target;
 
   void ClearSharedMemory();
-  void FreeSharedMemory(SharedMemory sm);
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);

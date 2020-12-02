@@ -76,25 +76,6 @@ void Debugger::ClearSharedMemory() {
   shared_memory.clear();
 }
 
-void Debugger::FreeSharedMemory(SharedMemory sm) {
-  if (sm.size == 0) {
-    WARN("FreeShare is called with size == 0\n");
-    return;
-  }
-
-  kern_return_t krt = mach_port_destroy(mach_task_self(), sm.port);
-  if (krt != KERN_SUCCESS) {
-    FATAL("Error (%s) destroy port for local shared memory @ 0x%llx\n", mach_error_string(krt), sm.local_address);
-  }
-
-  krt = mach_vm_deallocate(mach_task_self(), sm.remote_address, sm.size);
-  if (krt != KERN_SUCCESS) {
-    FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), sm.remote_address);
-  }
-
-  shared_memory.erase(std::remove(shared_memory.begin(), shared_memory.end(), sm), shared_memory.end());
-}
-
 std::list<SharedMemory>::iterator Debugger::FreeSharedMemory(std::list<SharedMemory>::iterator it) {
   if (it->size == 0) {
     WARN("FreeShare is called with size == 0\n");
@@ -106,7 +87,7 @@ std::list<SharedMemory>::iterator Debugger::FreeSharedMemory(std::list<SharedMem
     FATAL("Error (%s) destroy port for local shared memory @ 0x%llx\n", mach_error_string(krt), it->local_address);
   }
 
-  krt = mach_vm_deallocate(mach_task_self(), it->remote_address, it->size);
+  krt = mach_vm_deallocate(mach_task_self(), it->local_address, it->size);
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), it->remote_address);
   }
@@ -316,13 +297,12 @@ void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size) {
     FATAL("Error (%s) remote allocate share memory\n", mach_error_string(ret));
   }
 
-  mach_vm_address_t map_address;
+  mach_vm_address_t map_address = 0;
   ret = mach_vm_map(mach_task_self(), &map_address, memoryObjectSize, 0, VM_FLAGS_ANYWHERE, shm_port, 0, 0, VM_PROT_READ, VM_PROT_READ, VM_INHERIT_NONE);
   if (ret != KERN_SUCCESS) {
     FATAL("Error (%s) map memory\n", mach_error_string(ret));
   }
 
-  std::pair<mach_vm_address_t, size_t> entry = std::make_pair(map_address, size);
   SharedMemory sm(map_address, address, size, shm_port);
   shared_memory.push_back(sm);
 
