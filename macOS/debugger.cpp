@@ -68,12 +68,59 @@ vm_prot_t Debugger::MacOSProtectionFlags(MemoryProtection memory_protection) {
   }
 }
 
+void Debugger::ClearSharedMemory() {
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ) {
+    iter = FreeSharedMemory(iter);
+  }
+
+  shared_memory.clear();
+}
+
+std::list<SharedMemory>::iterator Debugger::FreeSharedMemory(std::list<SharedMemory>::iterator it) {
+  if (it->size == 0) {
+    WARN("FreeShare is called with size == 0\n");
+    return;
+  }
+
+  kern_return_t krt = mach_port_destroy(mach_task_self(), it->port);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) destroy port for local shared memory @ 0x%llx\n", mach_error_string(krt), it->local_address);
+  }
+
+  krt = mach_vm_deallocate(mach_task_self(), it->local_address, it->size);
+  if (krt != KERN_SUCCESS) {
+    FATAL("Error (%s) freeing memory @ 0x%llx\n", mach_error_string(krt), it->remote_address);
+  }
+
+  return shared_memory.erase(it);
+}
+
 void Debugger::RemoteFree(void *address, size_t size) {
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); iter++) {
+    if (iter->remote_address == (mach_vm_address_t)address) {
+      FreeSharedMemory(iter);
+      break;
+    }
+  }
   mach_target->FreeMemory((uint64_t)address, size);
 }
 
 void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
-  mach_target->ReadMemory((uint64_t)address, size, buffer);
+  mach_vm_address_t shared_memory_address = 0;
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ++iter) {
+    if (iter->remote_address <= (mach_vm_address_t)address &&
+	size <= iter->size &&
+	(mach_vm_address_t)address <= iter->remote_address + iter->size) {
+      shared_memory_address = iter->local_address + ((mach_vm_address_t)address - iter->remote_address);
+      break;
+    }
+  }
+
+  if (shared_memory_address) {
+    memcpy(buffer, (void *)shared_memory_address, size);
+  } else {
+    mach_target->ReadMemory((uint64_t)address, size, buffer);
+  }
 }
 
 void Debugger::RemoteWrite(void *address, const void *buffer, size_t size) {
@@ -239,11 +286,34 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
   }
 }
 
+void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size) {
+  mach_port_t shm_port;
+  if (address == 0)
+    return NULL;
+
+  memory_object_size_t memoryObjectSize = round_page(size);
+  kern_return_t ret = mach_make_memory_entry_64(mach_target->Task(), &memoryObjectSize, address, VM_PROT_READ, &shm_port, MACH_PORT_NULL);
+  if (ret != KERN_SUCCESS) {
+    FATAL("Error (%s) remote allocate share memory\n", mach_error_string(ret));
+  }
+
+  mach_vm_address_t map_address = 0;
+  ret = mach_vm_map(mach_task_self(), &map_address, memoryObjectSize, 0, VM_FLAGS_ANYWHERE, shm_port, 0, 0, VM_PROT_READ, VM_PROT_READ, VM_INHERIT_NONE);
+  if (ret != KERN_SUCCESS) {
+    FATAL("Error (%s) map memory\n", mach_error_string(ret));
+  }
+
+  SharedMemory sm(map_address, address, size, shm_port);
+  shared_memory.push_back(sm);
+
+  return (void *)map_address;
+}
 
 void *Debugger::RemoteAllocateNear(uint64_t region_min,
-                                        uint64_t region_max,
-                                        size_t size,
-                                        MemoryProtection protection) {
+				    uint64_t region_max,
+				    size_t size,
+				    MemoryProtection protection,
+				    bool use_shared_memory) {
   uint64_t min_address, max_address;
 
   //try after first
@@ -251,6 +321,8 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   max_address = (UINT64_MAX - region_min < 0x80000000) ? UINT64_MAX : region_min + 0x80000000;
   void *ret_address = RemoteAllocateAfter(min_address, max_address, size, protection);
   if (ret_address != NULL) {
+    if (use_shared_memory)
+      MakeSharedMemory((mach_vm_address_t)ret_address, size);
     return ret_address;
   }
 
@@ -259,11 +331,16 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   max_address = (region_min < size) ? 0 : region_min - size;
   ret_address = RemoteAllocateBefore(min_address, max_address, size, protection);
   if (ret_address != NULL) {
+    if (use_shared_memory)
+      MakeSharedMemory((mach_vm_address_t)ret_address, size);
     return ret_address;
   }
 
   // if all else fails, try within
-  return RemoteAllocateAfter(region_min, region_max, size, protection);
+  ret_address = RemoteAllocateAfter(region_min, region_max, size, protection);
+  if (use_shared_memory)
+    MakeSharedMemory((mach_vm_address_t)ret_address, size);
+  return ret_address;
 }
 
 void *Debugger::RemoteAllocateBefore(uint64_t min_address,
@@ -962,6 +1039,10 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
   }
 
   switch(mach_exception->exception_type) {
+    case EXC_SYSCALL:
+      handle_exception_status = DEBUGGER_CONTINUE;
+      dbg_continue_status = KERN_SUCCESS;
+      break;
     case EXC_RESOURCE:
       handle_exception_status = DEBUGGER_HANGED;
       break;
@@ -1271,8 +1352,10 @@ void Debugger::OnProcessExit() {
     mach_target->CleanUp();
     delete mach_target;
     mach_target = NULL;
+
+    ClearSharedMemory();
   }
-  
+
   // collect any zombie processes at this point
   int status;
   while(wait3(&status, WNOHANG, 0) > 0);
@@ -1437,6 +1520,7 @@ void Debugger::Init(int argc, char **argv) {
   target_end_detection = RETADDR_STACK_OVERWRITE;
 
   dbg_last_status = DEBUGGER_NONE;
+  shared_memory.clear();
 
   dbg_continue_needed = false;
   dbg_reply_needed = false;

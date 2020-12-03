@@ -48,6 +48,7 @@ public:
   void ClearInstrumentationData();
 
   unsigned char *coverage_buffer_remote;
+
   size_t coverage_buffer_size;
   size_t coverage_buffer_next;
 

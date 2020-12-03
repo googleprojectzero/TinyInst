@@ -22,6 +22,7 @@ limitations under the License.
 #include <limits.h>
 #include <unordered_map>
 #include <list>
+#include <vector>
 #include <mutex>
 
 #include "machtarget.h"
@@ -37,7 +38,38 @@ enum DebuggerStatus {
   DEBUGGER_TARGET_END,
   DEBUGGER_CRASHED,
   DEBUGGER_HANGED,
-  DEBUGGER_ATTACHED
+  DEBUGGER_ATTACHED,
+};
+
+class SharedMemory {
+public:
+  SharedMemory(mach_vm_address_t la,
+		mach_vm_address_t ra,
+		mach_vm_size_t s,
+		mach_port_t p) : local_address(la), remote_address(ra), size(s), port(p) {}
+  SharedMemory(const SharedMemory& other) : local_address(other.local_address),
+					    remote_address(other.remote_address),
+					    size(other.size),
+					    port(other.port) {}
+  SharedMemory &operator=(const SharedMemory& other) {
+    local_address = other.local_address;
+    remote_address = other.remote_address;
+    size = other.size;
+    port = other.port;
+    return *this;
+  }
+
+  bool operator==(SharedMemory const& rhs) {
+    return local_address == rhs.local_address &&
+	  remote_address == rhs.remote_address &&
+	  size == rhs.size &&
+	  port == rhs.port;
+  }
+
+  mach_vm_address_t local_address;
+  mach_vm_address_t remote_address;
+  mach_vm_size_t size;
+  mach_port_t port;
 };
 
 // From dyld SPI header dyld_process_info.h
@@ -163,6 +195,8 @@ protected:
   void GetImageSize(void *base_address, size_t *min_address, size_t *max_address);
 
   MachTarget *mach_target;
+
+  void ClearSharedMemory();
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, const void *buffer, size_t size);
   void RemoteRead(void *address, void *buffer, size_t size);
@@ -181,10 +215,14 @@ protected:
   int32_t child_ptr_size = sizeof(void*);
 
   // helper functions
+
+  void *MakeSharedMemory(mach_vm_address_t address, size_t size);
+
   void *RemoteAllocateNear(uint64_t region_min,
                            uint64_t region_max,
                            size_t size,
-                           MemoryProtection protection);
+                           MemoryProtection protection,
+			   bool use_shared_memory = false);
 
   void ExtractCodeRanges(void *base_address,
                          size_t min_address,
@@ -202,6 +240,7 @@ protected:
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
+  std::list<SharedMemory> shared_memory;
 
   struct MachException {
     mach_port_t exception_port;
@@ -249,6 +288,7 @@ private:
   MachException *mach_exception;
   Exception last_exception;
 
+  std::list<SharedMemory>::iterator FreeSharedMemory(std::list<SharedMemory>::iterator it);
   void StartProcess(int argc, char **argv);
   DebuggerStatus DebugLoop(uint32_t timeout);
   void AttachToProcess();

@@ -19,6 +19,7 @@ limitations under the License.
 
 #include <mach/mach.h>
 #include <mach-o/dyld_images.h>
+#include <unordered_map>
 
 class MachTarget {
 private:

@@ -92,5 +92,3 @@ add_executable(litecov
 )
 
 target_link_libraries(litecov tinyinst)
-
-

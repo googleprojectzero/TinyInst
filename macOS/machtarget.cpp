@@ -69,6 +69,7 @@ MachTarget::MachTarget(pid_t target_pid): pid(target_pid), m_page_size(INVALID_P
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) registering the exception port with the target process\n", mach_error_string(krt));
   }
+
 }
 
 
