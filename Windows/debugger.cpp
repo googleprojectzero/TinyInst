@@ -292,7 +292,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   uint64_t region_max,
   size_t size,
   MemoryProtection protection,
-  bool use_shared_memory);
+  bool use_shared_memory)
 {
   void *ret = NULL;
 
