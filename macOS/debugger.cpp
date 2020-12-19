@@ -79,7 +79,7 @@ void Debugger::ClearSharedMemory() {
 std::list<SharedMemory>::iterator Debugger::FreeSharedMemory(std::list<SharedMemory>::iterator it) {
   if (it->size == 0) {
     WARN("FreeShare is called with size == 0\n");
-    return;
+    return ++it;
   }
 
   kern_return_t krt = mach_port_destroy(mach_task_self(), it->port);
