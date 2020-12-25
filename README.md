@@ -240,11 +240,11 @@ Note that on modern Windows, due to CFG, all indirect jump/calls happen from the
 
 ### Return address patching
 
-By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding in the exception handling (SEH) on 64-bit Windows. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
+By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding during exception handling on 64-bit Windows and Mac. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
 
-At this time, TinyInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note that, without additional instrumentation, this causes an exception on every return (causing a massive slowdown). However, with `-patch_return_addresses`, return instructions also get instrumented similarly to indirect jumps/calls. While this resolves returns happening within a module, note that all returns from a non-instrumented into an instrumented module will still cause exceptions.
+At this time, TinyInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note that, without additional instrumentation, this causes an exception on every return (causing a significant slowdown). However, with `-patch_return_addresses`, return instructions also get instrumented similarly to indirect jumps/calls. While this resolves returns happening within a module, note that all returns from a non-instrumented into an instrumented module will still cause exceptions.
 
-Since this is a fairly common case, more performant options for supporting exception handling in Windows will be investigated in the future. This can be accomplished using RtlAddFunctionTable / RtlAddGrowableFunctionTable / RtlInstallFunctionTableCallback APIs.
+Since this is a fairly common case, more performant options for supporting exception handling will be investigated in the future. On Windows, for example, this can be accomplished using RtlAddFunctionTable / RtlAddGrowableFunctionTable / RtlInstallFunctionTableCallback APIs.
 
 ## Performance tips
 
