@@ -1183,6 +1183,22 @@ void Debugger::OnProcessCreated() {
     child_thread_handle = info->hThread;
     child_entrypoint_reached = true;
     GetProcessPlatform();
+
+    // In case of attaching to an existing process
+    // the dll load event for the main module
+    // will *not* be generated.
+    // Handle the main module load below
+    char filename[MAX_PATH];
+    GetFinalPathNameByHandleA(info->hFile, (LPSTR)(&filename), sizeof(filename), 0);
+    char* base_name = strrchr(filename, '\\');
+    if (base_name) base_name += 1;
+    else base_name = filename;
+    if (trace_debug_events)
+      printf("Debugger: Loaded module %s at %p\n",
+        base_name,
+        (void*)info->lpBaseOfImage);
+    OnModuleLoaded(info->lpBaseOfImage, base_name);
+
   } else {
     // add a brekpoint to the process entrypoint
     void *entrypoint = GetModuleEntrypoint(info->lpBaseOfImage);
