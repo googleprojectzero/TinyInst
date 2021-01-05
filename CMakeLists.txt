@@ -57,7 +57,7 @@ elseif (APPLE)
        macOS/debugger.h
        macOS/debugger.cpp
        macOS/machtarget.h
-       macOs/machtarget.cpp
+       macOS/machtarget.cpp
        macOS/mig_client.h
        macOS/mig_client.c
        macOS/mig_server.h
