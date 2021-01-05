@@ -63,6 +63,9 @@ void Debugger::CreateException(EXCEPTION_RECORD *win_exception_record,
   case EXCEPTION_ILLEGAL_INSTRUCTION:
     exception->type = ILLEGAL_INSTRUCTION;
     break;
+  case EXCEPTION_STACK_OVERFLOW:
+    exception->type = STACK_OVERFLOW;
+    break;
   default:
     exception->type = OTHER;
     break;
