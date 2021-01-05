@@ -286,19 +286,20 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
   }
 }
 
-void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size) {
+void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size, MemoryProtection protection) {
   mach_port_t shm_port;
   if (address == 0)
     return NULL;
 
   memory_object_size_t memoryObjectSize = round_page(size);
-  kern_return_t ret = mach_make_memory_entry_64(mach_target->Task(), &memoryObjectSize, address, VM_PROT_READ, &shm_port, MACH_PORT_NULL);
+  vm_prot_t prot_flags = MacOSProtectionFlags(protection);
+  kern_return_t ret = mach_make_memory_entry_64(mach_target->Task(), &memoryObjectSize, address, prot_flags, &shm_port, MACH_PORT_NULL);
   if (ret != KERN_SUCCESS) {
     FATAL("Error (%s) remote allocate share memory\n", mach_error_string(ret));
   }
 
   mach_vm_address_t map_address = 0;
-  ret = mach_vm_map(mach_task_self(), &map_address, memoryObjectSize, 0, VM_FLAGS_ANYWHERE, shm_port, 0, 0, VM_PROT_READ, VM_PROT_READ, VM_INHERIT_NONE);
+  ret = mach_vm_map(mach_task_self(), &map_address, memoryObjectSize, 0, VM_FLAGS_ANYWHERE, shm_port, 0, 0, prot_flags, prot_flags, VM_INHERIT_NONE);
   if (ret != KERN_SUCCESS) {
     FATAL("Error (%s) map memory\n", mach_error_string(ret));
   }
@@ -322,7 +323,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   void *ret_address = RemoteAllocateAfter(min_address, max_address, size, protection);
   if (ret_address != NULL) {
     if (use_shared_memory)
-      MakeSharedMemory((mach_vm_address_t)ret_address, size);
+      MakeSharedMemory((mach_vm_address_t)ret_address, size, protection);
     return ret_address;
   }
 
@@ -332,14 +333,14 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   ret_address = RemoteAllocateBefore(min_address, max_address, size, protection);
   if (ret_address != NULL) {
     if (use_shared_memory)
-      MakeSharedMemory((mach_vm_address_t)ret_address, size);
+      MakeSharedMemory((mach_vm_address_t)ret_address, size, protection);
     return ret_address;
   }
 
   // if all else fails, try within
   ret_address = RemoteAllocateAfter(region_min, region_max, size, protection);
   if (use_shared_memory)
-    MakeSharedMemory((mach_vm_address_t)ret_address, size);
+    MakeSharedMemory((mach_vm_address_t)ret_address, size, protection);
   return ret_address;
 }
 

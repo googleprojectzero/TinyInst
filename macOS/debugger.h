@@ -216,7 +216,7 @@ protected:
 
   // helper functions
 
-  void *MakeSharedMemory(mach_vm_address_t address, size_t size);
+  void *MakeSharedMemory(mach_vm_address_t address, size_t size, MemoryProtection protection);
 
   void *RemoteAllocateNear(uint64_t region_min,
                            uint64_t region_max,
