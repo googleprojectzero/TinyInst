@@ -772,14 +772,37 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
 
   entry_point_command *entry_point_cmd = NULL;
   GetLoadCommand(mach_header, load_commands_buffer, LC_MAIN, NULL, &entry_point_cmd);
-  if (entry_point_cmd == NULL) {
-    FATAL("Unable to find ENTRY POINT command in GetModuleEntrypoint\n");
+  if (entry_point_cmd) {
+    uint64_t entryoff = entry_point_cmd->entryoff;
+
+    free(load_commands_buffer);
+    return (void*)((uint64_t)base_address + entryoff);
   }
 
-  uint64_t entryoff = entry_point_cmd->entryoff;
+  // no LC_MAIN command, probably an older binary.
+  // Look up LC_UNIXTHREAD instead
+
+  thread_command *tc;
+  GetLoadCommand(mach_header, load_commands_buffer, LC_UNIXTHREAD, NULL, &tc);
+  if(tc == NULL) {
+    FATAL("Unable to find entry point in the executable module");
+  }
+
+  uint32_t flavor = *(uint32_t *)((char *)tc + 2 * sizeof(uint32_t));
+  if(flavor != x86_THREAD_STATE64) {
+    FATAL("Unexpected thread state flavor");
+  }
+  x86_thread_state64_t *state = (x86_thread_state64_t *)((char *)tc + 4 * sizeof(uint32_t));
+
+  segment_command_64 *text_cmd = NULL;
+  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
+  if (text_cmd == NULL) {
+    FATAL("Unable to find __TEXT command in GetModuleEntrypoint\n");
+  }
+  uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
 
   free(load_commands_buffer);
-  return (void*)((uint64_t)base_address + entryoff);
+  return (void*)(state->__rip + file_vm_slide);
 }
 
 bool Debugger::IsDyld(void *base_address) {
@@ -832,6 +855,7 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
 
     if ((symbol.n_type & N_TYPE) == N_SECT) {
       char *sym_name_start = strtab + symbol.n_un.n_strx;
+      // printf("%s\n", sym_name_start);
       if (!strcmp(sym_name_start, symbol_name)) {
         symbol_address = (void*)((uint64_t)base_address - text_cmd->vmaddr + symbol.n_value);
         break;
