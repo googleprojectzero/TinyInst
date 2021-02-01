@@ -113,7 +113,7 @@ xed_reg_enum_t Get8BitRegister(xed_reg_enum_t r) {
 }
 
 
-uint32_t Push(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded) {
+uint32_t Push(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded, size_t encoded_size) {
   uint32_t olen;
   xed_error_enum_t xed_error;
 
@@ -128,7 +128,7 @@ uint32_t Push(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded) {
   xed_encoder_request_set_reg(&push, XED_OPERAND_REG0, GetFullSizeRegister(r, dstate->stack_addr_width));
   xed_encoder_request_set_operand_order(&push, 0, XED_OPERAND_REG0);
 
-  xed_error = xed_encode(&push, encoded, sizeof(encoded), &olen);
+  xed_error = xed_encode(&push, encoded, encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
@@ -136,7 +136,7 @@ uint32_t Push(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded) {
   return olen;
 }
 
-uint32_t Pop(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded) {
+uint32_t Pop(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded, size_t encoded_size) {
   uint32_t olen;
   xed_error_enum_t xed_error;
 
@@ -151,7 +151,7 @@ uint32_t Pop(xed_state_t *dstate, xed_reg_enum_t r, unsigned char *encoded) {
   xed_encoder_request_set_reg(&pop, XED_OPERAND_REG0, GetFullSizeRegister(r, dstate->stack_addr_width));
   xed_encoder_request_set_operand_order(&pop, 0, XED_OPERAND_REG0);
 
-  xed_error = xed_encode(&pop, encoded, sizeof(encoded), &olen);
+  xed_error = xed_encode(&pop, encoded, encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
@@ -207,7 +207,7 @@ void CopyOperandFromInstruction(xed_decoded_inst_t *src,
 }
 
 
-uint32_t Mov(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t base_reg, int32_t displacement, xed_reg_enum_t r2, unsigned char *encoded) {
+uint32_t Mov(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t base_reg, int32_t displacement, xed_reg_enum_t r2, unsigned char *encoded, size_t encoded_size) {
   uint32_t olen;
   xed_error_enum_t xed_error;
 
@@ -228,7 +228,7 @@ uint32_t Mov(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t base_re
   xed_encoder_request_set_reg(&mov, XED_OPERAND_REG0, r2);
   xed_encoder_request_set_operand_order(&mov, 1, XED_OPERAND_REG0);
 
-  xed_error = xed_encode(&mov, encoded, sizeof(encoded), &olen);
+  xed_error = xed_encode(&mov, encoded, encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
@@ -236,7 +236,7 @@ uint32_t Mov(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t base_re
   return olen;
 }
 
-uint32_t Lzcnt(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_reg, xed_reg_enum_t src_reg, unsigned char *encoded) {
+uint32_t Lzcnt(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_reg, xed_reg_enum_t src_reg, unsigned char *encoded, size_t encoded_size) {
   uint32_t olen;
   xed_error_enum_t xed_error;
 
@@ -253,7 +253,7 @@ uint32_t Lzcnt(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_
   xed_encoder_request_set_reg(&lzcnt, XED_OPERAND_REG1, src_reg);
   xed_encoder_request_set_operand_order(&lzcnt, 1, XED_OPERAND_REG1);
 
-  xed_error = xed_encode(&lzcnt, encoded, sizeof(encoded), &olen);
+  xed_error = xed_encode(&lzcnt, encoded, encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
@@ -261,7 +261,7 @@ uint32_t Lzcnt(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_
   return olen;
 }
 
-uint32_t CmpImm8(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_reg, uint64_t imm, unsigned char *encoded) {
+uint32_t CmpImm8(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t dest_reg, uint64_t imm, unsigned char *encoded, size_t encoded_size) {
   uint32_t olen;
   xed_error_enum_t xed_error;
 
@@ -278,7 +278,7 @@ uint32_t CmpImm8(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t des
   xed_encoder_request_set_uimm0_bits(&lzcnt, imm, 8);
   xed_encoder_request_set_operand_order(&lzcnt, 1, XED_OPERAND_IMM0);
 
-  xed_error = xed_encode(&lzcnt, encoded, sizeof(encoded), &olen);
+  xed_error = xed_encode(&lzcnt, encoded, encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
