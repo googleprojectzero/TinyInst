@@ -390,7 +390,7 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
 }
 
 // allocates memory in target process as close as possible
-// to min_address, but not higher than min_address
+// to min_address, but not higher than max_address
 void *Debugger::RemoteAllocateAfter(uint64_t min_address,
   uint64_t max_address,
   size_t size,
