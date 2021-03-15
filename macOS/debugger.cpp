@@ -108,9 +108,9 @@ void Debugger::RemoteFree(void *address, size_t size) {
 void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
   mach_vm_address_t shared_memory_address = 0;
   for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ++iter) {
-    if (iter->remote_address <= (mach_vm_address_t)address &&
-	size <= iter->size &&
-	(mach_vm_address_t)address <= iter->remote_address + iter->size) {
+    if (((mach_vm_address_t)address >= iter->remote_address)  &&
+        (((mach_vm_address_t)address + size) <= (iter->remote_address + iter->size)))
+    {
       shared_memory_address = iter->local_address + ((mach_vm_address_t)address - iter->remote_address);
       break;
     }
