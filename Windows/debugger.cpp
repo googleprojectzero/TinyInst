@@ -390,7 +390,7 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
 }
 
 // allocates memory in target process as close as possible
-// to min_address, but not higher than min_address
+// to min_address, but not higher than max_address
 void *Debugger::RemoteAllocateAfter(uint64_t min_address,
   uint64_t max_address,
   size_t size,
@@ -857,9 +857,9 @@ void Debugger::ReadStack(void *stack_addr, void **buffer, size_t numitems) {
   ReadProcessMemory(child_handle, stack_addr, buffer, numitems * child_ptr_size, &numrw);
 }
 
-// writes numitems entries from stack in remote process
-// from stack_addr
-// into buffer
+// writes numitems entries to stack in remote process
+// from buffer
+// into stack_addr
 void Debugger::WriteStack(void *stack_addr, void **buffer, size_t numitems) {
   SIZE_T numrw = 0;
 #ifdef _WIN64

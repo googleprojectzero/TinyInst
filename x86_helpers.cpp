@@ -265,20 +265,20 @@ uint32_t CmpImm8(xed_state_t *dstate, uint32_t operand_width, xed_reg_enum_t des
   uint32_t olen;
   xed_error_enum_t xed_error;
 
-  xed_encoder_request_t lzcnt;
-  xed_encoder_request_zero_set_mode(&lzcnt, dstate);
-  xed_encoder_request_set_iclass(&lzcnt, XED_ICLASS_CMP);
+  xed_encoder_request_t cmp;
+  xed_encoder_request_zero_set_mode(&cmp, dstate);
+  xed_encoder_request_set_iclass(&cmp, XED_ICLASS_CMP);
 
-  xed_encoder_request_set_effective_operand_width(&lzcnt, operand_width);
+  xed_encoder_request_set_effective_operand_width(&cmp, operand_width);
   // xed_encoder_request_set_effective_address_size(&lzcnt, operand_width);
 
-  xed_encoder_request_set_reg(&lzcnt, XED_OPERAND_REG0, dest_reg);
-  xed_encoder_request_set_operand_order(&lzcnt, 0, XED_OPERAND_REG0);
+  xed_encoder_request_set_reg(&cmp, XED_OPERAND_REG0, dest_reg);
+  xed_encoder_request_set_operand_order(&cmp, 0, XED_OPERAND_REG0);
 
-  xed_encoder_request_set_uimm0_bits(&lzcnt, imm, 8);
-  xed_encoder_request_set_operand_order(&lzcnt, 1, XED_OPERAND_IMM0);
+  xed_encoder_request_set_uimm0_bits(&cmp, imm, 8);
+  xed_encoder_request_set_operand_order(&cmp, 1, XED_OPERAND_IMM0);
 
-  xed_error = xed_encode(&lzcnt, encoded, (unsigned int)encoded_size, &olen);
+  xed_error = xed_encode(&cmp, encoded, (unsigned int)encoded_size, &olen);
   if (xed_error != XED_ERROR_NONE) {
     FATAL("Error encoding instruction");
   }
