@@ -522,6 +522,8 @@ void Debugger::HandleTargetReachedInternal() {
 
 
 void Debugger::HandleTargetEnded() {
+  target_return_value = (uint64_t)GetRegister(RAX);
+
   if (loop_mode) {
     SetRegister(RIP, (size_t)target_address);
     SetRegister(RSP, (size_t)saved_sp);
@@ -1534,6 +1536,8 @@ void Debugger::Init(int argc, char **argv) {
   trace_debug_events = false;
   loop_mode = false;
   target_function_defined = false;
+  
+  target_return_value = 0;
 
   target_module[0] = 0;
   target_method[0] = 0;
