@@ -983,6 +983,12 @@ void Debugger::HandleTargetEnded() {
   HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
   GetThreadContext(thread_handle, &lcContext);
 
+#ifdef _WIN64
+  target_return_value = (uint64_t)lcContext.Rax;
+#else
+  target_return_value = (uint64_t)lcContext.Eax;
+#endif
+
   if (loop_mode) {
     // restore params
 #ifdef _WIN64
@@ -1593,6 +1599,8 @@ void Debugger::Init(int argc, char **argv) {
   trace_debug_events = false;
   loop_mode = false;
   target_function_defined = false;
+
+  target_return_value = 0;
 
   child_handle = NULL;
   child_thread_handle = NULL;

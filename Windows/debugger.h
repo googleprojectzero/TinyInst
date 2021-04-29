@@ -43,7 +43,9 @@ public:
   DebuggerStatus Attach(unsigned int pid, uint32_t timeout);
 
   bool IsTargetAlive() { return (child_handle != NULL); };
-  bool IsTargetFunctionDefined() { return target_function_defined; };
+  bool IsTargetFunctionDefined() { return target_function_defined; }
+
+  uint64_t GetTargetReturnValue() { return target_return_value; }
   
   enum ExceptionType {
     BREAKPOINT,
@@ -219,6 +221,8 @@ private:
   void *saved_sp;
   void *saved_return_address;
   void **saved_args;
+
+  uint64_t target_return_value;
 
   void RetrieveThreadContext();
   void CreateException(EXCEPTION_RECORD *win_exception_record,
