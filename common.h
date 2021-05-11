@@ -17,12 +17,15 @@ limitations under the License.
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <stdlib.h>
+#include <string.h>
+#include <inttypes.h>
 #include <list>
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
     #include <windows.h>
     #define ArgvEscape ArgvEscapeWindows
-#elif __APPLE__
+#else
     #include <limits.h>
     #ifndef MAX_PATH
         #define MAX_PATH PATH_MAX
