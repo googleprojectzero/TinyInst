@@ -136,13 +136,13 @@ Called when an exception is encountered. The client must either return true (if 
 
 During these callbacks, the client can add code to the target by calling `WriteCode()`. Note that the client is responsible for saving and restoring any context (such as registers and flags clobbered in the inserted code).
 
-`OnBasicBlock`
+`InstrumentBasicBlock`
 Can be used to insert code that's going to run on a particular basic block
 
-`OnEdge`
+`InstrumentEdge`
 Can be used to insert code that's going to run on a particular edge. Note: For performance reasons, this callback is only emitted on non-deterministic edges (i.e. conditional jumps) and indirect jumps/calls (e.g. `call rax`). For edges where the next basic block is always known given the previous basic block (e.g. `jmp offset`, `call offset`), no callback will be emitted.
 
-`OnInstruction`
+`InstrumentInstruction`
 Can be used to modify the instruction or insert code before it. Depending on the return code the original instruction is either going to be emitted or not after the callback.
 
 ### Other callbacks
