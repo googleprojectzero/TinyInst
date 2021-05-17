@@ -33,8 +33,8 @@ limitations under the License.
 #include <sys/ptrace.h>
 #include <signal.h>
 
-#include "debugger.h"
-#include "../common.h"
+#include "macOS/debugger.h"
+#include "common.h"
 
 #define BREAKPOINT_UNKNOWN 0x0
 #define BREAKPOINT_ENTRYPOINT 0x01
@@ -43,6 +43,16 @@ limitations under the License.
 #define BREAKPOINT_TARGET_END 0x08
 
 #define PERSIST_END_EXCEPTION 0x0F22
+
+#ifndef _POSIX_SPAWN_DISABLE_ASLR
+#define _POSIX_SPAWN_DISABLE_ASLR 0x0100
+#endif
+
+#ifdef ARM64
+    #define MAX_NUM_REG_ARGS 8
+#else
+    #define MAX_NUM_REG_ARGS 6
+#endif
 
 extern char **environ;
 
@@ -137,12 +147,20 @@ void Debugger::RemoteProtect(void *address, size_t size, vm_prot_t protect) {
 
 
 void Debugger::CreateException(MachException *mach_exception, Exception *exception) {
+#ifdef ARM64
+  exception->ip = (void*)GetRegister(PC);
+#else
   exception->ip = (void*)GetRegister(RIP);
+#endif
 
   switch (mach_exception->exception_type) {
     case EXC_BREAKPOINT:
       exception->type = BREAKPOINT;
+#ifdef ARM64
+      exception->ip = (void*)((uint64_t)exception->ip);
+#else
       exception->ip = (void*)((uint64_t)exception->ip - 1);
+#endif
       break;
 
     case EXC_BAD_ACCESS:
@@ -173,6 +191,55 @@ void Debugger::CreateException(MachException *mach_exception, Exception *excepti
 }
 
 uint64_t* Debugger::GetPointerToRegister(Register r) {
+#ifdef ARM64
+  arm_thread_state64_t *state = (arm_thread_state64_t*)(mach_exception->new_state);
+  switch(r) {
+    case X0:
+    case X1:
+    case X2:
+    case X3:
+    case X4:
+    case X5:
+    case X6:
+    case X7:
+    case X8:
+    case X9:
+    case X10:
+    case X11:
+    case X12:
+    case X13:
+    case X14:
+    case X15:
+    case X16:
+    case X17:
+    case X18:
+    case X19:
+    case X20:
+    case X21:
+    case X22:
+    case X23:
+    case X24:
+    case X25:
+    case X26:
+    case X27:
+    case X28:
+    case X29:
+    case X30:
+    case X31:
+      return &state->__x[r];
+    case PC:
+      return &state->__pc;
+    case CPSR:
+      return (uint64_t*)&state->__cpsr;
+    case LR:
+      return &state->__lr;
+    case SP:
+      return &state->__sp;
+
+    default:
+      FATAL("Unimplemented register");
+    }
+#else
   x86_thread_state64_t *state = (x86_thread_state64_t*)(mach_exception->new_state);
   switch (r) {
     case RAX:
@@ -213,18 +280,65 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
     default:
       FATAL("Unimplemented register");
   }
+#endif
 }
 
 size_t Debugger::GetRegister(Register r) {
+#ifdef ARM64
+  if (r == CPSR) {
+    uint32_t *reg_pointer = (uint32_t *)GetPointerToRegister(r);
+    return *reg_pointer;
+  }
+#endif
   uint64_t *reg_pointer = GetPointerToRegister(r);
   return *reg_pointer;
 }
 
 void Debugger::SetRegister(Register r, size_t value) {
+#ifdef ARM64
+  if (r == CPSR) {
+    if(value & 0xFFFFFFFF00000000) FATAL("32 bit value required");
+    uint32_t *reg_pointer = (uint32_t *)GetPointerToRegister(r);
+    *reg_pointer = (uint32_t)(value & 0xFFFFFFFF);
+  }
+#endif
   uint64_t *reg_pointer = GetPointerToRegister(r);
   *reg_pointer = value;
 }
 
+#ifdef ARM64
+Debugger::Register Debugger::ArgumentToRegister(int arg) {
+  switch (arg) {
+    case 0:
+      return X0;
+
+    case 1:
+      return X1;
+
+    case 2:
+      return X2;
+
+    case 3:
+      return X3;
+
+    case 4:
+      return X4;
+
+    case 5:
+      return X5;
+
+    case 6:
+      return X6;
+
+    case 7:
+      return X7;
+
+    default:
+      FATAL("Argument %d not valid\n", arg);
+      break;
+  }
+}
+#else
 Debugger::Register Debugger::ArgumentToRegister(int arg) {
   switch (arg) {
     case 0:
@@ -250,6 +364,7 @@ Debugger::Register Debugger::ArgumentToRegister(int arg) {
       break;
   }
 }
+#endif
 
 void Debugger::GetMachHeader(void *mach_header_address, mach_header_64 *mach_header) {
   RemoteRead(mach_header_address, (void*)mach_header, sizeof(mach_header_64));
@@ -480,10 +595,13 @@ void Debugger::AddBreakpoint(void *address, int type) {
   }
 
   Breakpoint *new_breakpoint = new Breakpoint;
-  RemoteRead(address, &(new_breakpoint->original_opcode), 1);
-
-  unsigned char cc = 0xCC;
-  RemoteWrite(address, (void*)&cc, 1);
+#ifdef ARM64
+  uint32_t breakpoint_bytes = 0xd4200020;
+#else
+  unsigned char breakpoint_bytes = 0xcc;
+#endif
+  RemoteRead(address, &(new_breakpoint->original_opcode), sizeof(new_breakpoint->original_opcode));
+  RemoteWrite(address, (void*)&breakpoint_bytes, sizeof(breakpoint_bytes));
 
   new_breakpoint->address = address;
   new_breakpoint->type = type;
@@ -492,18 +610,23 @@ void Debugger::AddBreakpoint(void *address, int type) {
 
 
 void Debugger::HandleTargetReachedInternal() {
+#ifdef ARM64
+  saved_sp = (void*)GetRegister(SP);
+  saved_return_address = (void*)GetRegister(LR);
+#else
   saved_sp = (void*)GetRegister(RSP);
   RemoteRead(saved_sp, &saved_return_address, child_ptr_size);
+#endif
 
   if (loop_mode) {
-    for (int arg_index = 0; arg_index < 6 && arg_index < target_num_args; ++arg_index) {
+    for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < target_num_args; ++arg_index) {
       saved_args[arg_index] = (void*)GetRegister(ArgumentToRegister(arg_index));
     }
 
-    if (target_num_args > 6) {
+    if (target_num_args > MAX_NUM_REG_ARGS) {
       RemoteRead((void*)((uint64_t)saved_sp + child_ptr_size),
-                 saved_args + 6,
-                 child_ptr_size * (target_num_args - 6));
+                 saved_args + MAX_NUM_REG_ARGS,
+                 child_ptr_size * (target_num_args - MAX_NUM_REG_ARGS));
     }
   }
 
@@ -520,9 +643,39 @@ void Debugger::HandleTargetReachedInternal() {
   }
 }
 
-
+#ifdef ARM64
 void Debugger::HandleTargetEnded() {
-  target_return_value = (uint64_t)GetRegister(RAX);
+  target_return_value = (uint64_t)GetRegister(X0);
+
+  if (loop_mode) {
+    SetRegister(PC, (size_t)target_address);
+    SetRegister(SP, (size_t)saved_sp);
+
+    if (target_end_detection == RETADDR_STACK_OVERWRITE) {
+      size_t return_address = PERSIST_END_EXCEPTION;
+      SetRegister(LR, (size_t)return_address);
+    } else if (target_end_detection == RETADDR_BREAKPOINT) {
+      SetRegister(LR, (size_t)saved_return_address);
+      AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
+    }
+
+    for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < target_num_args; ++arg_index) {
+      SetRegister(ArgumentToRegister(arg_index), (size_t)saved_args[arg_index]);
+    }
+
+    if (target_num_args > MAX_NUM_REG_ARGS) {
+      RemoteWrite((void*)((uint64_t)saved_sp + child_ptr_size),
+                  saved_args + MAX_NUM_REG_ARGS,
+                  child_ptr_size * (target_num_args - MAX_NUM_REG_ARGS));
+    }
+  } else {
+    SetRegister(PC, (size_t)saved_return_address);
+    AddBreakpoint((void*)GetTranslatedAddress((size_t)target_address), BREAKPOINT_TARGET);
+  }
+}
+#else
+void Debugger::HandleTargetEnded() {
+ target_return_value = (uint64_t)GetRegister(RAX);
 
   if (loop_mode) {
     SetRegister(RIP, (size_t)target_address);
@@ -550,6 +703,8 @@ void Debugger::HandleTargetEnded() {
     AddBreakpoint((void*)GetTranslatedAddress((size_t)target_address), BREAKPOINT_TARGET);
   }
 }
+#endif
+
 
 void Debugger::OnEntrypoint() {
   child_entrypoint_reached = true;
@@ -606,6 +761,7 @@ void Debugger::ExtractCodeRanges(void *base_address,
 
   free(load_commands_buffer);
 }
+
 
 void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                         mach_vm_address_t segment_end_addr,
@@ -790,11 +946,19 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
     FATAL("Unable to find entry point in the executable module");
   }
 
+#ifdef ARM64
+  uint32_t flavor = *(uint32_t *)((char *)tc + 2 * sizeof(uint32_t));
+  if(flavor != ARM_THREAD_STATE64) {
+    FATAL("Unexpected thread state flavor");
+  }
+  arm_thread_state64_t *state = (arm_thread_state64_t *)((char *)tc + 4 * sizeof(uint32_t));
+#else
   uint32_t flavor = *(uint32_t *)((char *)tc + 2 * sizeof(uint32_t));
   if(flavor != x86_THREAD_STATE64) {
     FATAL("Unexpected thread state flavor");
   }
   x86_thread_state64_t *state = (x86_thread_state64_t *)((char *)tc + 4 * sizeof(uint32_t));
+#endif
 
   segment_command_64 *text_cmd = NULL;
   GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
@@ -804,7 +968,11 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
 
   free(load_commands_buffer);
+#ifdef ARM64
+  return (void*)(state->__pc + file_vm_slide);
+#else
   return (void*)(state->__rip + file_vm_slide);
+#endif
 }
 
 bool Debugger::IsDyld(void *base_address) {
@@ -899,9 +1067,13 @@ void Debugger::OnModuleLoaded(void *module, char *module_name) {
     m_dyld_debugger_notification = GetSymbolAddress(module, (char*)"__dyld_debugger_notification");
     AddBreakpoint(m_dyld_debugger_notification, BREAKPOINT_NOTIFICATION);
 
+#ifdef ARM64
+    // For arm we just mov pc, lr on BREAKPOINT_NOTIFICATION
+#else
     // This save us the recurring TRAP FLAG breakpoint on BREAKPOINT_NOTIFICATION.
     unsigned char ret = 0xC3;
     RemoteWrite((void*)((uint64_t)m_dyld_debugger_notification+1), (void*)&ret, 1);
+#endif
   }
 
   if (target_function_defined && !strcasecmp(module_name, target_module)) {
@@ -1003,8 +1175,12 @@ int Debugger::HandleDebuggerBreakpoint() {
     return ret;
   }
 
-  RemoteWrite(breakpoint->address, &breakpoint->original_opcode, 1);
-  SetRegister(RIP, GetRegister(RIP) - 1); //INTEL
+  RemoteWrite(breakpoint->address, &breakpoint->original_opcode, sizeof(breakpoint->original_opcode));
+#ifdef ARM64
+  SetRegister(PC, GetRegister(PC)); // ARM
+#else
+  SetRegister(RIP, GetRegister(RIP) - 1); // INTEL
+#endif
 
   if (breakpoint->type & BREAKPOINT_ENTRYPOINT) {
       OnEntrypoint();
@@ -1050,6 +1226,12 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
     if (breakpoint_type & BREAKPOINT_TARGET_END) {
       handle_exception_status = DEBUGGER_TARGET_END;
     }
+#ifdef ARM64
+    if (breakpoint_type & BREAKPOINT_NOTIFICATION) {
+        SetRegister(PC, GetRegister(LR));
+        return;
+    }
+#endif
 
     if (breakpoint_type != BREAKPOINT_UNKNOWN) {
       return;
@@ -1161,6 +1343,26 @@ void Debugger::PrintContext() {
   kern_return_t ret = task_threads(mach_target->Task(), &threads, &num_threads);
   if(ret != KERN_SUCCESS) return;
   for(unsigned i=0;i<num_threads;i++) {
+#ifdef ARM64
+    arm_thread_state64_t state;
+    unsigned int count = ARM_THREAD_STATE64_COUNT;
+    ret = thread_get_state(threads[i], ARM_THREAD_STATE64, (thread_state_t)&state, &count);
+    if(ret != KERN_SUCCESS) continue;
+    printf("thread %d\n", i);
+    printf("pc: %llx\n", state.__pc);
+    printf(" x0: %16llx  x1: %16llx  x2: %16llx  x3: %16llx\n", state.__x[0], state.__x[1], state.__x[2], state.__x[3]);
+    printf(" x4: %16llx  x5: %16llx  x6: %16llx  x7: %16llx\n", state.__x[4], state.__x[5], state.__x[6], state.__x[7]);
+    printf(" x8: %16llx  x9: %16llx x10: %16llx x11: %16llx\n", state.__x[8], state.__x[9], state.__x[10], state.__x[11]);
+    printf("x12: %16llx x13: %16llx x14: %16llx x15: %16llx\n", state.__x[12], state.__x[13], state.__x[14], state.__x[15]);
+    printf("x16: %16llx x17: %16llx x18: %16llx x19: %16llx\n", state.__x[16], state.__x[17], state.__x[18], state.__x[19]);
+    printf("x20: %16llx x21: %16llx x22: %16llx x23: %16llx\n", state.__x[20], state.__x[21], state.__x[22], state.__x[23]);
+    printf("x24: %16llx x25: %16llx x26: %16llx x27: %16llx\n", state.__x[24], state.__x[25], state.__x[26], state.__x[27]);
+    printf("x28: %16llx\n", state.__x[28]);
+    printf(" sp: %16llx  fp: %16llx  lr: %16llx\n", state.__sp, state.__fp, state.__lr);
+    printf("stack:\n");
+    uint64_t stack[100];
+    mach_target->ReadMemory(state.__sp, sizeof(stack), stack);
+#else
     x86_thread_state64_t state;
     unsigned int count = x86_THREAD_STATE64_COUNT;
     ret = thread_get_state(threads[i], x86_THREAD_STATE64, (thread_state_t)&state, &count);
@@ -1174,8 +1376,9 @@ void Debugger::PrintContext() {
     printf("stack:\n");
     uint64_t stack[100];
     mach_target->ReadMemory(state.__rsp, sizeof(stack), stack);
+#endif
     for(int j=0; j<(sizeof(stack)/sizeof(stack[0])); j++) {
-      printf("%llx\n", stack[j]);
+      printf("%16llx\n", stack[j]);
     }
   }
   for(unsigned i=0;i<num_threads;i++) {
@@ -1191,7 +1394,10 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   }
 
   if (dbg_continue_needed) {
-    task_resume(mach_target->Task());
+    kern_return_t krt = task_resume(mach_target->Task());
+    if (krt != KERN_SUCCESS) {
+      FATAL("Error (%s) returned by mach_msg\n", mach_error_string(krt));
+    }
   }
 
   if (dbg_reply_needed) {
@@ -1211,7 +1417,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
 
     uint64_t time_elapsed = end_time - begin_time;
     timeout = ((uint64_t)timeout >= time_elapsed) ? timeout - (uint32_t)time_elapsed : 0;
-    
+
     switch (krt) {
       case MACH_RCV_TIMED_OUT:
         if (timeout == 0) {
@@ -1230,7 +1436,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
 
       default:
         if (krt != MACH_MSG_SUCCESS) {
-          FATAL("Error (%s) returned by mach_msg\n", mach_error_string(krt));
+          FATAL("Error (%s) returned by mach_msg (%x)\n", mach_error_string(krt), krt);
         }
     }
 
@@ -1452,7 +1658,7 @@ void Debugger::StartProcess(int argc, char **argv) {
     FATAL("Unable to init spawnattr");
   }
 
-  status = posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
+  status = posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED | _POSIX_SPAWN_DISABLE_ASLR);
   if (status != 0) {
     FATAL("Unable to set flags in posix_spawnattr_setflags");
   }
@@ -1546,7 +1752,11 @@ void Debugger::Init(int argc, char **argv) {
   target_num_args = 0;
   target_address = NULL;
   
+#ifdef ARM64
+  target_end_detection = RETADDR_BREAKPOINT;
+#else
   target_end_detection = RETADDR_STACK_OVERWRITE;
+#endif
 
   dbg_last_status = DEBUGGER_NONE;
   shared_memory.clear();

@@ -21,8 +21,8 @@ limitations under the License.
 #include <mach/mach_vm.h>
 #include <mach-o/dyld_images.h>
 
-#include "machtarget.h"
-#include "../common.h"
+#include "macOS/machtarget.h"
+#include "common.h"
 
 #define INVALID_PAGE_SIZE ((vm_size_t)(~0))
 
@@ -61,11 +61,19 @@ MachTarget::MachTarget(pid_t target_pid): pid(target_pid), m_page_size(INVALID_P
   }
 
   /* register the exception port with the target process */
+#ifdef ARM64
+  task_set_exception_ports(task,
+                           EXC_MASK_ALL,
+                           exception_port,
+                           EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
+                           ARM_THREAD_STATE64);
+#else
   task_set_exception_ports(task,
                            EXC_MASK_ALL,
                            exception_port,
                            EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
                            x86_THREAD_STATE64);
+#endif
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) registering the exception port with the target process\n", mach_error_string(krt));
   }
@@ -245,9 +253,9 @@ void MachTarget::WriteMemory(uint64_t address, const void *buf, size_t size) {
     }
 
     if (!(info.protection & VM_PROT_WRITE)) {
-      kern_return_t krt = mach_vm_protect(task, cur_address, cur_size, false, info.protection | VM_PROT_WRITE);
+      kern_return_t krt = mach_vm_protect(task, cur_address, cur_size, false, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
       if (krt != KERN_SUCCESS) {
-        ProtectMemory(cur_address, cur_size, info.protection | VM_PROT_WRITE | VM_PROT_COPY);
+        ProtectMemory(cur_address, cur_size, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_WANTS_COPY);
       }
     }
 
