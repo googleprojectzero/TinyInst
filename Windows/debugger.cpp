@@ -1537,33 +1537,36 @@ DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
 
   if (!DebugActiveProcess(pid)) {
     DWORD error_code = GetLastError();
-    SAY("DebugActiveProcess(%d) failed with error code = %d\n", error_code);
+    
 
     if(error_code == 5) {
       HANDLE hToken = NULL;
       LUID luid;
       TOKEN_PRIVILEGES tp;
-      SAY("Try again after enabling 'SeDebugPrivilege'\n");
-
-      if(OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        if(LookupPrivilegeValueA(NULL, "SeDebugPrivilege", &luid)) {
-          tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-          tp.Privileges[0].Luid = luid;
-          tp.PrivilegeCount = 1;
-          if(AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
-            if(!DebugActiveProcess(pid)) {
-              FATAL("Could not attach to the process.\n"
-              "Make sure the process exists and you have permissions to debug it.\n");
-            }
-          } else {
-            FATAL("AdjustTokenPrivileges() failed, error code = %d\n", GetLastError());
-          }
-        } else {
-          FATAL("LookupPrivilegeValueA() failed, error code = %d\n", GetLastError());
-        }
-      } else {
+      
+      if(!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
         FATAL("OpenProcessToken() failed, error code = %d\n", GetLastError());
       }
+      
+      if(!LookupPrivilegeValueA(NULL, "SeDebugPrivilege", &luid)) {
+        FATAL("LookupPrivilegeValueA() failed, error code = %d\n", GetLastError());
+      }
+      
+      tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+      tp.Privileges[0].Luid = luid;
+      tp.PrivilegeCount = 1;
+      
+      if(!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
+        FATAL("AdjustTokenPrivileges() failed, error code = %d\n", GetLastError());
+      }
+      
+      if(!DebugActiveProcess(pid)) {
+        FATAL("Could not attach to the process.\n"
+              "Make sure the process exists and you have permissions to debug it.\n");
+      }
+      
+    } else {
+      FATAL("DebugActiveProcess() failed, error code = %d\n", error_code);
     }
   }
 
