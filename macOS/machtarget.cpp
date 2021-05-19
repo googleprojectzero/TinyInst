@@ -251,9 +251,9 @@ void MachTarget::WriteMemory(uint64_t address, const void *buf, size_t size) {
     }
 
     if (!(info.protection & VM_PROT_WRITE)) {
-      kern_return_t krt = mach_vm_protect(task, cur_address, cur_size, false, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+      kern_return_t krt = mach_vm_protect(task, cur_address, cur_size, false, VM_PROT_READ | VM_PROT_WRITE);
       if (krt != KERN_SUCCESS) {
-        ProtectMemory(cur_address, cur_size, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_WANTS_COPY);
+        ProtectMemory(cur_address, cur_size, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
       }
     }
 
@@ -272,6 +272,9 @@ void MachTarget::WriteMemory(uint64_t address, const void *buf, size_t size) {
     buf = (void*)((uint64_t)buf + cur_size);
     cur_address += cur_size;
   }
+
+  vm_machine_attribute_val_t mattr_value = MATTR_VAL_CACHE_FLUSH;
+  vm_machine_attribute(task, address, size, MATTR_CACHE, &mattr_value);
 }
 
 void MachTarget::ProtectMemory(uint64_t address, uint64_t size, vm_prot_t protection) {
