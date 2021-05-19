@@ -15,11 +15,20 @@
 cmake_minimum_required(VERSION "3.1")
 set (CMAKE_CXX_STANDARD 11)
 
+# Determine whether TinyInst should be build for arm64 or x86
+if(APPLE AND NOT DEFINED ${ARCHITECTURE})
+  EXECUTE_PROCESS(COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE)
+endif()
 add_subdirectory(third_party)
 
 project("tinyinst")
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
+
+set (arch_specific_files
+     x86_helpers.h
+     x86_helpers.cpp
+)
 
 set (cross_platform_files
      common.h
@@ -30,8 +39,6 @@ set (cross_platform_files
      coverage.cpp
      litecov.h
      litecov.cpp
-     x86_helpers.h
-     x86_helpers.cpp
 )
 
 if (WIN32)
@@ -40,6 +47,10 @@ if (WIN32)
        Windows/debugger.cpp
   )
 elseif (APPLE)
+  if (${ARCHITECTURE} MATCHES arm64)
+    add_definitions(-DARM64)
+    set(CMAKE_REQUIRED_LINK_OPTIONS "-arch;arm64")
+  endif()
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/macOS/mig_client.c
            ${CMAKE_CURRENT_SOURCE_DIR}/macOS/mig_server.c
@@ -65,26 +76,38 @@ elseif (APPLE)
   )
 endif()
 
-add_library(tinyinst STATIC
-            ${cross_platform_files}
-            ${platform_specific_files}
-)
 
-add_dependencies(tinyinst xed)
-
-
+if(${ARCHITECTURE} MATCHES arm64)
+  add_library(tinyinst STATIC
+    common.h
+    common.cpp
+    ${platform_specific_files}
+  )
+else()
+  add_library(tinyinst STATIC
+    ${arch_specific_files}
+    ${cross_platform_files}
+    ${platform_specific_files}
+  )
+  add_dependencies(tinyinst xed)
+endif()
+target_include_directories(tinyinst PUBLIC . )
 if (WIN32)  
   target_link_libraries(tinyinst
                         ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
                         Dbghelp.lib
   )
 elseif (APPLE)
-  target_link_libraries(tinyinst
-                        ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/libxed.a
-  )
+  if(${ARCHITECTURE} MATCHES arm64)
+  else()
+    target_link_libraries(tinyinst
+                          ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/libxed.a
+    )
+  endif()
 endif()
 
 
+if(NOT ${ARCHITECTURE} MATCHES arm64)
 project("litecov")
 
 add_executable(litecov
@@ -92,3 +115,4 @@ add_executable(litecov
 )
 
 target_link_libraries(litecov tinyinst)
+endif()
