@@ -377,7 +377,7 @@ void Debugger::SetReturnAddress(size_t value) {
 #ifdef ARM64 
   SetRegister(LR, value);
 #else
-
+  RemoteWrite((void*)GetRegister(RSP), &value, child_ptr_size);
 #endif
 }
 size_t Debugger::GetReturnAddress() {
