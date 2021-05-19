@@ -233,6 +233,8 @@ protected:
 
   size_t GetRegister(Register r);
   void SetRegister(Register r, size_t value);
+  void SetReturnAddress(size_t value);
+  size_t GetReturnAddress();
 
   void *GetModuleEntrypoint(void *base_address);
   bool IsDyld(void *base_address);
@@ -251,6 +253,7 @@ protected:
   bool trace_debug_events;
   bool attach_mode;
   bool loop_mode;
+  bool disable_aslr;
 
   std::list<std::string> additional_env;
   

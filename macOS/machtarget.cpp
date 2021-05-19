@@ -26,6 +26,12 @@ limitations under the License.
 
 #define INVALID_PAGE_SIZE ((vm_size_t)(~0))
 
+#ifdef ARM64
+  #define ARCH_THREAD_STATE ARM_THREAD_STATE64
+#else
+  #define ARCH_THREAD_STATE x86_THREAD_STATE64
+#endif
+
 MachTarget::MachTarget(pid_t target_pid): pid(target_pid), m_page_size(INVALID_PAGE_SIZE) {
   kern_return_t krt;
 
@@ -61,19 +67,11 @@ MachTarget::MachTarget(pid_t target_pid): pid(target_pid), m_page_size(INVALID_P
   }
 
   /* register the exception port with the target process */
-#ifdef ARM64
   task_set_exception_ports(task,
                            EXC_MASK_ALL,
                            exception_port,
                            EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
-                           ARM_THREAD_STATE64);
-#else
-  task_set_exception_ports(task,
-                           EXC_MASK_ALL,
-                           exception_port,
-                           EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
-                           x86_THREAD_STATE64);
-#endif
+                           ARCH_THREAD_STATE);
   if (krt != KERN_SUCCESS) {
     FATAL("Error (%s) registering the exception port with the target process\n", mach_error_string(krt));
   }

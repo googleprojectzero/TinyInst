@@ -83,7 +83,6 @@ if(${ARCHITECTURE} MATCHES arm64)
     common.cpp
     ${platform_specific_files}
   )
-  # add_dependencies(tinyinst reil)
 else()
   add_library(tinyinst STATIC
     ${arch_specific_files}

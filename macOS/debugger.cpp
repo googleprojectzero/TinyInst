@@ -45,13 +45,25 @@ limitations under the License.
 #define PERSIST_END_EXCEPTION 0x0F22
 
 #ifndef _POSIX_SPAWN_DISABLE_ASLR
-#define _POSIX_SPAWN_DISABLE_ASLR 0x0100
+  #define _POSIX_SPAWN_DISABLE_ASLR 0x0100
 #endif
 
 #ifdef ARM64
-    #define MAX_NUM_REG_ARGS 8
+  #define MAX_NUM_REG_ARGS 8
+  #define ARCH_SP SP
+  #define ARCH_PC PC
+  #define ARCH_RETURN_VALUE_REGISTER X0
+  #define ARCH_THREAD_STATE ARM_THREAD_STATE64
+  #define ARCH_THREAD_STATE_COUNT ARM_THREAD_STATE64_COUNT
+  #define ARCH_THREAD_STATE_T arm_thread_state64_t
 #else
-    #define MAX_NUM_REG_ARGS 6
+  #define MAX_NUM_REG_ARGS 6
+  #define ARCH_SP RSP
+  #define ARCH_PC RIP
+  #define ARCH_RETURN_VALUE_REGISTER RAX
+  #define ARCH_THREAD_STATE x86_THREAD_STATE64
+  #define ARCH_THREAD_STATE_COUNT x86_THREAD_STATE64_COUNT
+  #define ARCH_THREAD_STATE_T x86_thread_state64_t
 #endif
 
 extern char **environ;
@@ -147,11 +159,7 @@ void Debugger::RemoteProtect(void *address, size_t size, vm_prot_t protect) {
 
 
 void Debugger::CreateException(MachException *mach_exception, Exception *exception) {
-#ifdef ARM64
-  exception->ip = (void*)GetRegister(PC);
-#else
-  exception->ip = (void*)GetRegister(RIP);
-#endif
+  exception->ip = (void*)GetRegister(ARCH_PC);
 
   switch (mach_exception->exception_type) {
     case EXC_BREAKPOINT:
@@ -191,8 +199,8 @@ void Debugger::CreateException(MachException *mach_exception, Exception *excepti
 }
 
 uint64_t* Debugger::GetPointerToRegister(Register r) {
+  ARCH_THREAD_STATE_T *state = (ARCH_THREAD_STATE_T*)(mach_exception->new_state);
 #ifdef ARM64
-  arm_thread_state64_t *state = (arm_thread_state64_t*)(mach_exception->new_state);
   switch(r) {
     case X0:
     case X1:
@@ -240,7 +248,6 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
       FATAL("Unimplemented register");
     }
 #else
-  x86_thread_state64_t *state = (x86_thread_state64_t*)(mach_exception->new_state);
   switch (r) {
     case RAX:
       return &state->__rax;
@@ -365,6 +372,23 @@ Debugger::Register Debugger::ArgumentToRegister(int arg) {
   }
 }
 #endif
+
+void Debugger::SetReturnAddress(size_t value) {
+#ifdef ARM64 
+  SetRegister(LR, value);
+#else
+
+#endif
+}
+size_t Debugger::GetReturnAddress() {
+#ifdef ARM64 
+  return GetRegister(LR);
+#else
+  void *ra;
+  RemoteRead((void*)GetRegister(RSP), &ra, child_ptr_size);
+  return (size_t)ra;
+#endif
+}
 
 void Debugger::GetMachHeader(void *mach_header_address, mach_header_64 *mach_header) {
   RemoteRead(mach_header_address, (void*)mach_header, sizeof(mach_header_64));
@@ -610,13 +634,8 @@ void Debugger::AddBreakpoint(void *address, int type) {
 
 
 void Debugger::HandleTargetReachedInternal() {
-#ifdef ARM64
-  saved_sp = (void*)GetRegister(SP);
-  saved_return_address = (void*)GetRegister(LR);
-#else
-  saved_sp = (void*)GetRegister(RSP);
-  RemoteRead(saved_sp, &saved_return_address, child_ptr_size);
-#endif
+  saved_sp = (void*)GetRegister(ARCH_SP);
+  saved_return_address = (void*)GetReturnAddress();
 
   if (loop_mode) {
     for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < target_num_args; ++arg_index) {
@@ -643,19 +662,19 @@ void Debugger::HandleTargetReachedInternal() {
   }
 }
 
-#ifdef ARM64
+
 void Debugger::HandleTargetEnded() {
-  target_return_value = (uint64_t)GetRegister(X0);
+  target_return_value = (uint64_t)GetRegister(ARCH_RETURN_VALUE_REGISTER);
 
   if (loop_mode) {
-    SetRegister(PC, (size_t)target_address);
-    SetRegister(SP, (size_t)saved_sp);
+    SetRegister(ARCH_PC, (size_t)target_address);
+    SetRegister(ARCH_SP, (size_t)saved_sp);
 
     if (target_end_detection == RETADDR_STACK_OVERWRITE) {
       size_t return_address = PERSIST_END_EXCEPTION;
-      SetRegister(LR, (size_t)return_address);
+      SetReturnAddress(return_address);
     } else if (target_end_detection == RETADDR_BREAKPOINT) {
-      SetRegister(LR, (size_t)saved_return_address);
+      SetReturnAddress((size_t)saved_return_address);
       AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
     }
 
@@ -669,42 +688,10 @@ void Debugger::HandleTargetEnded() {
                   child_ptr_size * (target_num_args - MAX_NUM_REG_ARGS));
     }
   } else {
-    SetRegister(PC, (size_t)saved_return_address);
+    SetRegister(ARCH_PC, (size_t)saved_return_address);
     AddBreakpoint((void*)GetTranslatedAddress((size_t)target_address), BREAKPOINT_TARGET);
   }
 }
-#else
-void Debugger::HandleTargetEnded() {
- target_return_value = (uint64_t)GetRegister(RAX);
-
-  if (loop_mode) {
-    SetRegister(RIP, (size_t)target_address);
-    SetRegister(RSP, (size_t)saved_sp);
-
-    if (target_end_detection == RETADDR_STACK_OVERWRITE) {
-      size_t return_address = PERSIST_END_EXCEPTION;
-      RemoteWrite(saved_sp, &return_address, child_ptr_size);
-    } else if (target_end_detection == RETADDR_BREAKPOINT) {
-      RemoteWrite(saved_sp, &saved_return_address, child_ptr_size);
-      AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
-    }
-    
-    for (int arg_index = 0; arg_index < 6 && arg_index < target_num_args; ++arg_index) {
-      SetRegister(ArgumentToRegister(arg_index), (size_t)saved_args[arg_index]);
-    }
-
-    if (target_num_args > 6) {
-      RemoteWrite((void*)((uint64_t)saved_sp + child_ptr_size),
-                  saved_args + 6,
-                  child_ptr_size * (target_num_args - 6));
-    }
-  } else {
-    SetRegister(RIP, (size_t)saved_return_address);
-    AddBreakpoint((void*)GetTranslatedAddress((size_t)target_address), BREAKPOINT_TARGET);
-  }
-}
-#endif
-
 
 void Debugger::OnEntrypoint() {
   child_entrypoint_reached = true;
@@ -761,7 +748,6 @@ void Debugger::ExtractCodeRanges(void *base_address,
 
   free(load_commands_buffer);
 }
-
 
 void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                         mach_vm_address_t segment_end_addr,
@@ -946,19 +932,11 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
     FATAL("Unable to find entry point in the executable module");
   }
 
-#ifdef ARM64
   uint32_t flavor = *(uint32_t *)((char *)tc + 2 * sizeof(uint32_t));
-  if(flavor != ARM_THREAD_STATE64) {
+  if(flavor != ARCH_THREAD_STATE) {
     FATAL("Unexpected thread state flavor");
   }
-  arm_thread_state64_t *state = (arm_thread_state64_t *)((char *)tc + 4 * sizeof(uint32_t));
-#else
-  uint32_t flavor = *(uint32_t *)((char *)tc + 2 * sizeof(uint32_t));
-  if(flavor != x86_THREAD_STATE64) {
-    FATAL("Unexpected thread state flavor");
-  }
-  x86_thread_state64_t *state = (x86_thread_state64_t *)((char *)tc + 4 * sizeof(uint32_t));
-#endif
+  ARCH_THREAD_STATE_T *state = (ARCH_THREAD_STATE_T *)((char *)tc + 4 * sizeof(uint32_t));
 
   segment_command_64 *text_cmd = NULL;
   GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
@@ -1343,11 +1321,11 @@ void Debugger::PrintContext() {
   kern_return_t ret = task_threads(mach_target->Task(), &threads, &num_threads);
   if(ret != KERN_SUCCESS) return;
   for(unsigned i=0;i<num_threads;i++) {
-#ifdef ARM64
-    arm_thread_state64_t state;
-    unsigned int count = ARM_THREAD_STATE64_COUNT;
-    ret = thread_get_state(threads[i], ARM_THREAD_STATE64, (thread_state_t)&state, &count);
+    ARCH_THREAD_STATE_T state;
+    unsigned int count = ARCH_THREAD_STATE_COUNT;
+    ret = thread_get_state(threads[i], ARCH_THREAD_STATE, (thread_state_t)&state, &count);
     if(ret != KERN_SUCCESS) continue;
+#ifdef ARM64
     printf("thread %d\n", i);
     printf("pc: %llx\n", state.__pc);
     printf(" x0: %16llx  x1: %16llx  x2: %16llx  x3: %16llx\n", state.__x[0], state.__x[1], state.__x[2], state.__x[3]);
@@ -1363,10 +1341,6 @@ void Debugger::PrintContext() {
     uint64_t stack[100];
     mach_target->ReadMemory(state.__sp, sizeof(stack), stack);
 #else
-    x86_thread_state64_t state;
-    unsigned int count = x86_THREAD_STATE64_COUNT;
-    ret = thread_get_state(threads[i], x86_THREAD_STATE64, (thread_state_t)&state, &count);
-    if(ret != KERN_SUCCESS) continue;
     printf("thread %d\n", i);
     printf("rip:%llx\n", state.__rip);
     printf("rax:%llx rbx:%llx rcx:%llx rdx:%llx\n", state.__rax, state.__rbx, state.__rcx, state.__rdx);
@@ -1394,10 +1368,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   }
 
   if (dbg_continue_needed) {
-    kern_return_t krt = task_resume(mach_target->Task());
-    if (krt != KERN_SUCCESS) {
-      FATAL("Error (%s) returned by mach_msg\n", mach_error_string(krt));
-    }
+    task_resume(mach_target->Task());
   }
 
   if (dbg_reply_needed) {
@@ -1657,8 +1628,12 @@ void Debugger::StartProcess(int argc, char **argv) {
   if (status != 0) {
     FATAL("Unable to init spawnattr");
   }
-
-  status = posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED | _POSIX_SPAWN_DISABLE_ASLR);
+  
+  short posix_flags = POSIX_SPAWN_START_SUSPENDED;
+  if(disable_aslr) {
+    posix_flags |= _POSIX_SPAWN_DISABLE_ASLR;
+  }
+  status = posix_spawnattr_setflags(&attr, posix_flags);
   if (status != 0) {
     FATAL("Unable to set flags in posix_spawnattr_setflags");
   }
@@ -1784,6 +1759,7 @@ void Debugger::Init(int argc, char **argv) {
   if (option) strncpy(target_method, option, PATH_MAX);
 
   loop_mode = GetBinaryOption("-loop", argc, argv, loop_mode);
+  disable_aslr = GetBinaryOption("-disable_aslr", argc, argv, disable_aslr);
 
   option = GetOption("-nargs", argc, argv);
   if (option) target_num_args = atoi(option);
