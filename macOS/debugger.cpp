@@ -1716,6 +1716,7 @@ void Debugger::Init(int argc, char **argv) {
   attach_mode = false;
   trace_debug_events = false;
   loop_mode = false;
+  disable_aslr = false;
   target_function_defined = false;
   
   target_return_value = 0;
