@@ -26,13 +26,17 @@ project("tinyinst")
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
 
 set (arch_specific_files
-     x86_helpers.h
-     x86_helpers.cpp
+    arch/x86/x86_helpers.h
+    arch/x86/x86_helpers.cpp
+    arch/x86/x86_assembler.h
+    arch/x86/x86_assembler.cpp
 )
 
 set (cross_platform_files
      common.h
      common.cpp
+     assembler.h
+     instruction.h
      tinyinst.h
      tinyinst.cpp
      coverage.h
@@ -91,7 +95,10 @@ else()
   )
   add_dependencies(tinyinst xed)
 endif()
-target_include_directories(tinyinst PUBLIC . )
+target_include_directories(tinyinst PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include
+)
 if (WIN32)  
   target_link_libraries(tinyinst
                         ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
@@ -106,8 +113,7 @@ elseif (APPLE)
   endif()
 endif()
 
-
-if(NOT ${ARCHITECTURE} MATCHES arm64)
+if(NOT (${ARCHITECTURE} MATCHES arm64))
 project("litecov")
 
 add_executable(litecov

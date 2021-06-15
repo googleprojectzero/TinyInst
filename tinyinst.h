@@ -29,17 +29,22 @@ limitations under the License.
 #endif
 
 #include "common.h"
+#include "assembler.h"
+#include "instruction.h"
+
 
 // must be a power of two
 #define JUMPTABLE_SIZE 0x2000
 
-// we will allocate 
-// original_code_size * CODE_SIZE_MULTIPLIER + 
+// we will allocate
+// original_code_size * CODE_SIZE_MULTIPLIER +
 // JUMPTABLE_SIZE * child_ptr_size
 // for instrumented code
 #define CODE_SIZE_MULTIPLIER 4
 
 typedef struct xed_decoded_inst_s xed_decoded_inst_t;
+
+class ModuleInfo;
 
 class TinyInst : public Debugger {
 public:
@@ -73,44 +78,6 @@ protected:
     size_t source_bb;
   };
 
-  class ModuleInfo {
-  public:
-    ModuleInfo();
-    void ClearInstrumentation();
-
-    std::string module_name;
-    void *module_header;
-    size_t min_address;
-    size_t max_address;
-    size_t code_size;
-    bool loaded;
-    bool instrumented;
-    std::list<AddressRange> executable_ranges;
-
-    size_t instrumented_code_size;
-    size_t instrumented_code_allocated;
-    char *instrumented_code_local;
-    char *instrumented_code_remote;
-    char *instrumented_code_remote_previous;
-
-    std::unordered_map<uint32_t, uint32_t> basic_blocks;
-
-    size_t br_indirect_newtarget_global;
-
-    // per callsite jumplist breakpoint
-    // from breakpoint address to list head offset
-    std::unordered_map<size_t, IndirectBreakpoinInfo> br_indirect_newtarget_list;
-
-    size_t jumptable_offset;
-    size_t jumptable_address_offset;
-
-    std::unordered_set<size_t> invalid_instructions;
-    std::unordered_map<size_t, size_t> tracepoints;
-
-    // clients can use this to store additional data
-    // about the module
-    void *client_data;
-  };
   std::list<ModuleInfo *> instrumented_modules;
 
   struct CrossModuleLink {
@@ -131,28 +98,15 @@ protected:
 
   virtual size_t GetTranslatedAddress(size_t address) override;
 
-  void OffsetStack(ModuleInfo *module, int32_t offset);
-  void ReadStack(ModuleInfo *module, int32_t offset);
-  void WriteStack(ModuleInfo *module, int32_t offset);
   void WriteCode(ModuleInfo *module, void *data, size_t size);
   void WriteCodeAtOffset(ModuleInfo *module, size_t offset, void *data, size_t size);
   void WritePointer(ModuleInfo *module, size_t value);
   void WritePointerAtOffset(ModuleInfo *module, size_t value, size_t offset);
   size_t ReadPointer(ModuleInfo *module, size_t offset);
 
-  // fixes the memory displacement of the current instruction
-  // (assumes it is in the 4 last bytes)
-  inline void FixDisp4(ModuleInfo *module, int32_t disp) {
-    *(int32_t *)(module->instrumented_code_local + module->instrumented_code_allocated - 4)
-      = disp;
-  }
+  inline void FixDisp4(ModuleInfo *module, int32_t disp); 
 
-  // gets the current code address in the instrumented code
-  // *in the child process*
-  inline size_t GetCurrentInstrumentedAddress(ModuleInfo *module) {
-    return (size_t)module->instrumented_code_remote + module->instrumented_code_allocated;
-  }
-
+  size_t GetCurrentInstrumentedAddress(ModuleInfo *module);
   void CommitCode(ModuleInfo *module, size_t start_offset, size_t size);
 
   ModuleInfo *GetModuleByName(const char *name);
@@ -160,19 +114,8 @@ protected:
   ModuleInfo *GetModuleFromInstrumented(size_t address);
   AddressRange *GetRegion(ModuleInfo *module, size_t address);
 
-  bool IsRipRelative(ModuleInfo *module,
-    xed_decoded_inst_t *xedd,
-    size_t instruction_address,
-    size_t *mem_address);
-
-  void FixInstructionAndOutput(ModuleInfo *module,
-    xed_decoded_inst_t *xedd,
-    unsigned char *input,
-    unsigned char *input_address_remote,
-    bool convert_call_to_jmp = false);
-
-  int xed_mmode;
   int32_t sp_offset;
+  Assembler* assembler_;
 
 private:
   bool HandleBreakpoint(void *address);
@@ -207,35 +150,17 @@ private:
 
   // functions related to indirect jump/call instrumentation
   void InitGlobalJumptable(ModuleInfo *module);
-  void MovIndirectTarget(ModuleInfo *module,
-                         xed_decoded_inst_t *xedd,
-                         size_t original_address,
-                         int32_t stack_offset);
   void InstrumentIndirect(ModuleInfo *module,
-                          xed_decoded_inst_t *xedd,
+                          Instruction& inst,
                           size_t instruction_address,
                           IndirectInstrumentation mode,
                           size_t bb_address);
-  void InstrumentRet(ModuleInfo *module,
-                     xed_decoded_inst_t *xedd,
-                     size_t instruction_address,
-                     IndirectInstrumentation mode,
-                     size_t bb_address);
-  void InstrumentGlobalIndirect(ModuleInfo *module,
-                                xed_decoded_inst_t *xedd,
-                                size_t instruction_address);
-  void InstrumentLocalIndirect(ModuleInfo *module,
-                               xed_decoded_inst_t *xedd,
-                               size_t instruction_address,
-                               size_t bb_address);
 
   // returns the indirect instrumentation mode that should be used for a particular call
   // can be overriden
   virtual IndirectInstrumentation ShouldInstrumentIndirect(ModuleInfo *module,
-                                                           xed_decoded_inst_t *xedd,
+                                                           Instruction& inst,
                                                            size_t instruction_address);
-
-  void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
 
   size_t AddTranslatedJump(ModuleInfo *module,
                            ModuleInfo *target_module,
@@ -244,6 +169,7 @@ private:
                            size_t list_head_offset,
                            size_t edge_start_address,
                            bool global_indirect);
+  void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
   bool HandleIndirectJMPBreakpoint(void *address);
 
   // instrumentation API
@@ -255,10 +181,10 @@ private:
                               size_t next_address) {}
 
   virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
-                                                  xed_decoded_inst_t *xedd,
+                                                  Instruction& inst,
                                                   size_t bb_address,
                                                   size_t instruction_address)
-  { 
+  {
     return INST_NOTHANDLED;
   }
 
@@ -281,6 +207,48 @@ private:
 
   bool instrumentation_disabled;
   bool instrument_modules_on_load;
+
+  // friend class Asssembler;
+  friend class X86Assembler;
+  friend class ModuleInfo;
 };
+class ModuleInfo {
+  public:
+    ModuleInfo();
+    void ClearInstrumentation();
+
+    std::string module_name;
+    void *module_header;
+    size_t min_address;
+    size_t max_address;
+    size_t code_size;
+    bool loaded;
+    bool instrumented;
+    std::list<TinyInst::AddressRange> executable_ranges;
+
+    size_t instrumented_code_size;
+    size_t instrumented_code_allocated;
+    char *instrumented_code_local;
+    char *instrumented_code_remote;
+    char *instrumented_code_remote_previous;
+
+    std::unordered_map<uint32_t, uint32_t> basic_blocks;
+
+    size_t br_indirect_newtarget_global;
+
+    // per callsite jumplist breakpoint
+    // from breakpoint address to list head offset
+    std::unordered_map<size_t, TinyInst::IndirectBreakpoinInfo> br_indirect_newtarget_list;
+
+    size_t jumptable_offset;
+    size_t jumptable_address_offset;
+
+    std::unordered_set<size_t> invalid_instructions;
+    std::unordered_map<size_t, size_t> tracepoints;
+
+    // clients can use this to store additional data
+    // about the module
+    void *client_data;
+  };
 
 #endif // TINYINST_H
