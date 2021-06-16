@@ -36,7 +36,7 @@ int cur_iteration;
 // (should know what to do in pretty much all cases)
 void RunTarget(int argc, char **argv, unsigned int pid, uint32_t timeout) {
   DebuggerStatus status;
-  
+
   if (instrumentation->IsTargetFunctionDefined()) {
     if (cur_iteration == num_iterations) {
       instrumentation->Kill();
@@ -146,7 +146,7 @@ int main(int argc, char **argv)
   char *outfile = GetOption("-coverage_file", argc, argv);
 
   if (!target_argc && !pid) {
-    printf("Usage:\n"); 
+    printf("Usage:\n");
     printf("%s <options> -- <target command line>\n", argv[0]);
     printf("Or:\n");
     printf("%s <options> -pid <pid to attach to>\n", argv[0]);
@@ -170,7 +170,7 @@ int main(int argc, char **argv)
 
     MergeCoverage(coverage, newcoverage);
   }
-  
+ 
   if (outfile) WriteCoverage(coverage, outfile);
 
   instrumentation->Kill();

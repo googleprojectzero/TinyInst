@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "coverage.h"
 #include "tinyinst.h"
+#include "instruction.h"
 
 #define COVERAGE_SIZE 0
 
@@ -98,7 +99,7 @@ protected:
                               size_t previous_address,
                               size_t next_address) override;
   virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
-                                                  xed_decoded_inst_t *xedd,
+                                                  Instruction &inst,
                                                   size_t bb_address,
                                                   size_t instruction_address) override;
 
@@ -109,7 +110,7 @@ protected:
   // compute a unique code for a basic block
   // this is just an offset into the module
   uint64_t GetBBCode(ModuleInfo *module, size_t bb_address);
- 
+
   // compute a unique code for a basic block
   // this has address1 offset in lower 32 bits and
   // address2 offset in higher 32 bits
@@ -132,7 +133,6 @@ protected:
                            xed_decoded_inst_t *cmp_xedd,
                            size_t instruction_address);
 private:
-
   CovType coverage_type;
   bool compare_coverage;
 };
