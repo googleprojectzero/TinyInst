@@ -212,43 +212,44 @@ private:
   friend class X86Assembler;
   friend class ModuleInfo;
 };
+
 class ModuleInfo {
-  public:
-    ModuleInfo();
-    void ClearInstrumentation();
+ public:
+  ModuleInfo();
+  void ClearInstrumentation();
 
-    std::string module_name;
-    void *module_header;
-    size_t min_address;
-    size_t max_address;
-    size_t code_size;
-    bool loaded;
-    bool instrumented;
-    std::list<TinyInst::AddressRange> executable_ranges;
+  std::string module_name;
+  void *module_header;
+  size_t min_address;
+  size_t max_address;
+  size_t code_size;
+  bool loaded;
+  bool instrumented;
+  std::list<TinyInst::AddressRange> executable_ranges;
 
-    size_t instrumented_code_size;
-    size_t instrumented_code_allocated;
-    char *instrumented_code_local;
-    char *instrumented_code_remote;
-    char *instrumented_code_remote_previous;
+  size_t instrumented_code_size;
+  size_t instrumented_code_allocated;
+  char *instrumented_code_local;
+  char *instrumented_code_remote;
+  char *instrumented_code_remote_previous;
 
-    std::unordered_map<uint32_t, uint32_t> basic_blocks;
+  std::unordered_map<uint32_t, uint32_t> basic_blocks;
 
-    size_t br_indirect_newtarget_global;
+  size_t br_indirect_newtarget_global;
 
-    // per callsite jumplist breakpoint
-    // from breakpoint address to list head offset
-    std::unordered_map<size_t, TinyInst::IndirectBreakpoinInfo> br_indirect_newtarget_list;
+  // per callsite jumplist breakpoint
+  // from breakpoint address to list head offset
+  std::unordered_map<size_t, TinyInst::IndirectBreakpoinInfo> br_indirect_newtarget_list;
 
-    size_t jumptable_offset;
-    size_t jumptable_address_offset;
+  size_t jumptable_offset;
+  size_t jumptable_address_offset;
 
-    std::unordered_set<size_t> invalid_instructions;
-    std::unordered_map<size_t, size_t> tracepoints;
+  std::unordered_set<size_t> invalid_instructions;
+  std::unordered_map<size_t, size_t> tracepoints;
 
-    // clients can use this to store additional data
-    // about the module
-    void *client_data;
-  };
+  // clients can use this to store additional data
+  // about the module
+  void *client_data;
+};
 
 #endif // TINYINST_H

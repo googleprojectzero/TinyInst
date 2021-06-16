@@ -122,6 +122,14 @@ inline void X86Assembler::FixDisp4(ModuleInfo *module, int32_t disp) {
                module->instrumented_code_allocated - 4) = disp;
 }
 
+void X86Assembler::Crash(ModuleInfo *module) {
+  if (tinyinst_.child_ptr_size == 8) {
+    tinyinst_.WriteCode(module, CRASH_64, sizeof(CRASH_64));
+  } else {
+    tinyinst_.WriteCode(module, CRASH_32, sizeof(CRASH_32));
+  }
+}
+
 void X86Assembler::Breakpoint(ModuleInfo *module) {
   tinyinst_.WriteCode(module, &BREAKPOINT, sizeof(BREAKPOINT));
 }
@@ -637,21 +645,6 @@ void X86Assembler::FixInstructionAndOutput(
   module->instrumented_code_allocated += olen;
 }
 
-
-// when an invalid instruction is encountered
-// emit a breakpoint followed by crashing the process
-void X86Assembler::InvalidInstruction(ModuleInfo *module) {
-  size_t breakpoint_address = (size_t)module->instrumented_code_remote +
-                              module->instrumented_code_allocated;
-  Breakpoint(module);
-  module->invalid_instructions.insert(breakpoint_address);
-  if (tinyinst_.child_ptr_size == 8) {
-    tinyinst_.WriteCode(module, CRASH_64, sizeof(CRASH_64));
-  } else {
-    tinyinst_.WriteCode(module, CRASH_32, sizeof(CRASH_32));
-  }
-}
-
 bool X86Assembler::DecodeInstruction(Instruction &inst,
                                      const unsigned char *buffer,
                                      unsigned int buffer_size) {
@@ -672,32 +665,28 @@ bool X86Assembler::DecodeInstruction(Instruction &inst,
   xed_category_enum_t category = xed_decoded_inst_get_category(&inst.xedd);
   xed_iclass_enum_t iclass = xed_decoded_inst_get_iclass(&inst.xedd);
 
-
-  switch (iclass) {
-    case XED_ICLASS_JMP:
-      inst.iclass = InstructionClass::IJUMP;
-      break;
-    case XED_ICLASS_CALL_NEAR:
-      inst.iclass = InstructionClass::ICALL;
-      break;
-    default:
-      inst.iclass = InstructionClass::NONE;
-      break;
-  }
-
   switch (category) {
-    case XED_CATEGORY_RET:
-      inst.iclass = InstructionClass::RET;
-      if(iclass == XED_ICLASS_RET_NEAR) {
-        inst.iclass = InstructionClass::RET_NEAR;
-      }
     case XED_CATEGORY_CALL:
+    case XED_CATEGORY_RET:
     case XED_CATEGORY_UNCOND_BR:
     case XED_CATEGORY_COND_BR:
       inst.bbend = true;
       break;
     default:
       break;
+  }
+
+  if (category == XED_CATEGORY_RET && iclass == XED_ICLASS_RET_NEAR) {
+    inst.iclass = InstructionClass::RET;
+  }
+  else if(iclass == XED_ICLASS_JMP) {
+    inst.iclass = InstructionClass::IJUMP;
+  }
+  else if(iclass == XED_ICLASS_CALL_NEAR) {
+    inst.iclass = InstructionClass::ICALL;
+  }
+  else {
+    inst.iclass = InstructionClass::OTHER;
   }
   return true;
 }
@@ -723,12 +712,6 @@ void X86Assembler::HandleBasicBlockEnd(
     const char *code_ptr,
     size_t offset,
     size_t last_offset) {
-  if (!inst.bbend) {
-    // WARN("Could not find end of bb at %p.\n", address);
-    InvalidInstruction(module);
-    return;
-  }
-
   xed_error_enum_t xed_error;
   xed_category_enum_t category = xed_decoded_inst_get_category(&inst.xedd);
   if (category == XED_CATEGORY_RET) {
@@ -779,7 +762,7 @@ void X86Assembler::HandleBasicBlockEnd(
 
     if (tinyinst_.GetModule((size_t)target_address2) != module) {
       WARN("Relative jump to a differen module in bb at %p\n", address);
-      InvalidInstruction(module);
+      tinyinst_.InvalidInstruction(module);
       return;
     }
 
@@ -872,7 +855,7 @@ void X86Assembler::HandleBasicBlockEnd(
 
       if (tinyinst_.GetModule((size_t)target_address) != module) {
         WARN("Relative jump to a differen module in bb at %p\n", address);
-        InvalidInstruction(module);
+        tinyinst_.InvalidInstruction(module);
         return;
       }
 
@@ -931,7 +914,7 @@ void X86Assembler::HandleBasicBlockEnd(
 
       if (tinyinst_.GetModule((size_t)call_address) != module) {
         WARN("Relative jump to a differen module in bb at %p\n", address);
-        InvalidInstruction(module);
+        tinyinst_.InvalidInstruction(module);
         return;
       }
 

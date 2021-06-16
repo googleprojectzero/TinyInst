@@ -52,6 +52,7 @@ class X86Assembler : public Assembler {
   void JmpAddress(ModuleInfo *module, size_t address) override;
   void Nop(ModuleInfo *module) override;
   void Breakpoint(ModuleInfo *module) override;
+  void Crash(ModuleInfo *module) override;
 
   void OffsetStack(ModuleInfo *module, int32_t offset) override;
   bool IsRipRelative(ModuleInfo *module,
@@ -89,8 +90,6 @@ class X86Assembler : public Assembler {
                      TinyInst::IndirectInstrumentation mode,
                      size_t bb_address);
   void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
-
-  void InvalidInstruction(ModuleInfo *module);
 
   int xed_mmode_;
 };

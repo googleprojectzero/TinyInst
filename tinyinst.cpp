@@ -435,14 +435,9 @@ TinyInst::IndirectInstrumentation TinyInst::ShouldInstrumentIndirect(
   ModuleInfo *module,
   Instruction& inst,
   size_t instruction_address) {
-  if(inst.iclass == InstructionClass::INVALID) FATAL("ShouldInstrumentIndirect with InstructionClass::INVALID");
 
   if (inst.iclass == InstructionClass::RET) {
     if (!patch_return_addresses) {
-      return II_NONE;
-    }
-
-    if (inst.iclass != InstructionClass::RET_NEAR) {
       return II_NONE;
     }
   } else {
@@ -457,6 +452,16 @@ TinyInst::IndirectInstrumentation TinyInst::ShouldInstrumentIndirect(
     // default to the most performant mode which is II_GLOBAL
     return II_GLOBAL;
   }
+}
+
+// when an invalid instruction is encountered
+// emit a breakpoint followed by crashing the process
+void TinyInst::InvalidInstruction(ModuleInfo *module) {
+  size_t breakpoint_address = (size_t)module->instrumented_code_remote +
+                              module->instrumented_code_allocated;
+  assembler_->Breakpoint(module);
+  module->invalid_instructions.insert(breakpoint_address);
+  assembler_->Crash(module);
 }
 
 void TinyInst::InstrumentIndirect(ModuleInfo *module,
@@ -498,9 +503,6 @@ void TinyInst::TranslateBasicBlock(char *address,
   char *code_ptr = range->data + range_offset;
 
   size_t offset = 0, last_offset = 0;
-
-  // xed_category_enum_t category;
-  // bool bbend = false;
 
   if (trace_basic_blocks) {
     size_t breakpoint_address = GetCurrentInstrumentedAddress(module);
@@ -553,6 +555,11 @@ void TinyInst::TranslateBasicBlock(char *address,
     assembler_->FixInstructionAndOutput(module, inst, (const unsigned char *)(code_ptr + last_offset), (const unsigned char *)(address + last_offset));
   }
 
+  if (!inst.bbend) {
+    // WARN("Could not find end of bb at %p.\n", address);
+    InvalidInstruction(module);
+    return;
+  }
   assembler_->HandleBasicBlockEnd(address, module, queue, offset_fixes, inst, code_ptr, offset, last_offset);
 }
 

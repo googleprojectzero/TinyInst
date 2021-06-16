@@ -28,10 +28,9 @@ typedef struct xed_decoded_inst_s xed_decoded_inst_t;
 enum InstructionClass {
   INVALID = 0,
   RET,
-  RET_NEAR,
   IJUMP,
   ICALL,
-  NONE,
+  OTHER,
 };
 
 struct Instruction {

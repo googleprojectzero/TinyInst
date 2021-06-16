@@ -511,7 +511,8 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
 
   // copy so we could modify it
   xed_decoded_inst_t cmp_xedd = inst.xedd;
-  inst.xedd = cmp_xedd;
+  xed_decoded_inst_t *xedd = &cmp_xedd;
+
 
   xed_state_t dstate;
   dstate.mmode = (xed_machine_mode_enum_t)child_ptr_size == 8 ? XED_MACHINE_MODE_LONG_64 : XED_MACHINE_MODE_LEGACY_32;
@@ -541,20 +542,20 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
   // mov register, memory
   // same as above from xor
 
-  const xed_inst_t* xi = xed_decoded_inst_inst(&inst.xedd);
+  const xed_inst_t* xi = xed_decoded_inst_inst(xedd);
 
   const xed_operand_t* op1 = xed_inst_operand(xi, 0);
   xed_operand_enum_t operand1_name = xed_operand_name(op1);
   xed_reg_enum_t operand1_register = XED_REG_INVALID;
   if (operand1_name == XED_OPERAND_REG0) {
-    operand1_register = xed_decoded_inst_get_reg(&inst.xedd, operand1_name);
+    operand1_register = xed_decoded_inst_get_reg(xedd, operand1_name);
   }
 
   const xed_operand_t* op2 = xed_inst_operand(xi, 1);
   xed_operand_enum_t operand2_name = xed_operand_name(op2);
   xed_reg_enum_t operand2_register = XED_REG_INVALID;
   if ((operand2_name == XED_OPERAND_REG0) || (operand2_name == XED_OPERAND_REG1)) {
-    operand2_register = xed_decoded_inst_get_reg(&inst.xedd, operand2_name);
+    operand2_register = xed_decoded_inst_get_reg(xedd, operand2_name);
   }
 
   // don't do instrument comparisons with RSP
@@ -572,7 +573,7 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
   }
 
   if (iclass == XED_ICLASS_SUB) {
-    if (!ShouldInstrumentSub(module, &inst.xedd, instruction_address)) {
+    if (!ShouldInstrumentSub(module, xedd, instruction_address)) {
       // printf("Not instrumenting SUB at %llx\n", instruction_address);
       return INST_NOTHANDLED;
     } else {
@@ -653,7 +654,7 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
     xed_encoder_request_set_reg(&mov, XED_OPERAND_REG0, destination_reg);
     xed_encoder_request_set_operand_order(&mov, 0, XED_OPERAND_REG0);
 
-    CopyOperandFromInstruction(&inst.xedd, &mov, operand1_name, operand1_name, 1, stack_offset);
+    CopyOperandFromInstruction(xedd, &mov, operand1_name, operand1_name, 1, stack_offset);
 
     if(rip_relative) {
       FixRipDisplacement(&mov, mem_address, GetCurrentInstrumentedAddress(module));
@@ -682,7 +683,7 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
       dest_operand_name = XED_OPERAND_REG1;
     }
 
-    CopyOperandFromInstruction(&inst.xedd, &xor_inst, operand2_name, dest_operand_name, 1, stack_offset);
+    CopyOperandFromInstruction(xedd, &xor_inst, operand2_name, dest_operand_name, 1, stack_offset);
 
     // no need to fix rip displacement here
     // as we know this won't reference memory
@@ -695,14 +696,14 @@ TinyInst::InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
 
   } else {
     // just change cmp to xor
-    xed_encoder_request_init_from_decode(&inst.xedd);
-    xed_encoder_request_set_iclass(&inst.xedd, XED_ICLASS_XOR);
+    xed_encoder_request_init_from_decode(xedd);
+    xed_encoder_request_set_iclass(xedd, XED_ICLASS_XOR);
 
     if(rip_relative) {
-      FixRipDisplacement(&inst.xedd, mem_address, GetCurrentInstrumentedAddress(module));
+      FixRipDisplacement(xedd, mem_address, GetCurrentInstrumentedAddress(module));
     }
 
-    xed_error = xed_encode(&inst.xedd, encoded, sizeof(encoded), &olen);
+    xed_error = xed_encode(xedd, encoded, sizeof(encoded), &olen);
     if (xed_error != XED_ERROR_NONE) {
       FATAL("Error encoding instruction");
     }

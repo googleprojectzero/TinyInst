@@ -54,6 +54,7 @@ class Assembler {
   virtual void JmpAddress(ModuleInfo *module, size_t address) = 0;
   virtual void Nop(ModuleInfo *module) = 0;
   virtual void Breakpoint(ModuleInfo *module) = 0;
+  virtual void Crash(ModuleInfo *module) = 0;
 
   virtual void OffsetStack(ModuleInfo *module, int32_t offset) = 0;
   virtual bool IsRipRelative(ModuleInfo *module,
