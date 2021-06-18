@@ -486,6 +486,10 @@ void TinyInst::TranslateBasicBlock(char *address,
   uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->min_address));
   uint32_t translated_offset = (uint32_t)module->instrumented_code_allocated;
 
+  unwind_generator->OnBasicBlockStart(module,
+    (size_t)address,
+    GetCurrentInstrumentedAddress(module));
+
   // printf("Instrumenting bb, original at %p, instrumented at %p\n",
   //        address, module->instrumented_code_remote + translated_offset);
 
@@ -532,6 +536,10 @@ void TinyInst::TranslateBasicBlock(char *address,
 
     if (!success) break;
 
+    unwind_generator->OnInstruction(module,
+      (size_t)address + offset,
+      GetCurrentInstrumentedAddress(module));
+
     // instruction-level-instrumentation
     InstructionResult instrumentation_result =
       InstrumentInstruction(module, inst, (size_t)address, (size_t)address + offset);
@@ -541,6 +549,9 @@ void TinyInst::TranslateBasicBlock(char *address,
       offset += inst.length;
       continue;
     case INST_STOPBB:
+      unwind_generator->OnBasicBlockEnd(module,
+        (size_t)address + offset + inst.length,
+        GetCurrentInstrumentedAddress(module));
       return;
     case INST_NOTHANDLED:
     default:
@@ -558,9 +569,16 @@ void TinyInst::TranslateBasicBlock(char *address,
   if (!inst.bbend) {
     // WARN("Could not find end of bb at %p.\n", address);
     InvalidInstruction(module);
+    unwind_generator->OnBasicBlockEnd(module,
+      (size_t)address + offset,
+      GetCurrentInstrumentedAddress(module));
     return;
   }
+
   assembler_->HandleBasicBlockEnd(address, module, queue, offset_fixes, inst, code_ptr, offset, last_offset);
+  unwind_generator->OnBasicBlockEnd(module,
+    (size_t)address + offset,
+    GetCurrentInstrumentedAddress(module));
 }
 
 // starting from address, starts instrumenting code in the module
@@ -740,9 +758,19 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   size_t translated_address = GetTranslatedAddress(module, (size_t)address);
   OnModuleEntered(module, (size_t)address);
 
+  translated_address = unwind_generator->MaybeRedirectExecution(module, translated_address);
+
   SetRegister(RIP, translated_address);
 
   return true;
+}
+
+void TinyInst::OnModuleInstrumented(ModuleInfo* module) {
+  unwind_generator->OnModuleInstrumented(module);
+}
+
+void TinyInst::OnModuleUninstrumented(ModuleInfo* module) {
+  unwind_generator->OnModuleUninstrumented(module);
 }
 
 // clears all instrumentation data from module locally
@@ -962,6 +990,9 @@ void TinyInst::Init(int argc, char **argv) {
   assembler_ = new X86Assembler(*this);
 #endif
   assembler_->Init();
+
+  // TODO: Replace with os-specific implementatopm
+  unwind_generator = new UnwindGenerator(*this);
 
   instrumentation_disabled = false;
 

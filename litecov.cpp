@@ -73,6 +73,8 @@ void LiteCov::Init(int argc, char **argv) {
 }
 
 void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
+  TinyInst::OnModuleInstrumented(module);
+
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
   data->ClearInstrumentationData();
@@ -100,6 +102,8 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
 }
 
 void LiteCov::OnModuleUninstrumented(ModuleInfo *module) {
+  TinyInst::OnModuleUninstrumented(module);
+
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
   CollectCoverage(data);

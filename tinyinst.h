@@ -31,6 +31,7 @@ limitations under the License.
 #include "common.h"
 #include "assembler.h"
 #include "instruction.h"
+#include "unwind.h"
 
 
 // must be a power of two
@@ -114,8 +115,28 @@ protected:
   ModuleInfo *GetModuleFromInstrumented(size_t address);
   AddressRange *GetRegion(ModuleInfo *module, size_t address);
 
+  // instrumentation API
+  virtual void OnModuleEntered(ModuleInfo *module, size_t entry_address) {}
+  virtual void InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) {}
+  virtual void InstrumentEdge(ModuleInfo *previous_module,
+                              ModuleInfo *next_module,
+                              size_t previous_address,
+                              size_t next_address) {}
+
+  virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
+                                                  Instruction& inst,
+                                                  size_t bb_address,
+                                                  size_t instruction_address)
+  {
+    return INST_NOTHANDLED;
+  }
+
+  virtual void OnModuleInstrumented(ModuleInfo* module);
+  virtual void OnModuleUninstrumented(ModuleInfo* module);
+
   int32_t sp_offset;
   Assembler* assembler_;
+  UnwindGenerator* unwind_generator;
 
 private:
   bool HandleBreakpoint(void *address);
@@ -172,25 +193,6 @@ private:
   void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
   bool HandleIndirectJMPBreakpoint(void *address);
 
-  // instrumentation API
-  virtual void OnModuleEntered(ModuleInfo *module, size_t entry_address) {}
-  virtual void InstrumentBasicBlock(ModuleInfo *module, size_t bb_address) {}
-  virtual void InstrumentEdge(ModuleInfo *previous_module,
-                              ModuleInfo *next_module,
-                              size_t previous_address,
-                              size_t next_address) {}
-
-  virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
-                                                  Instruction& inst,
-                                                  size_t bb_address,
-                                                  size_t instruction_address)
-  {
-    return INST_NOTHANDLED;
-  }
-
-  virtual void OnModuleInstrumented(ModuleInfo *module) {}
-  virtual void OnModuleUninstrumented(ModuleInfo *module) {}
-
   IndirectInstrumentation indirect_instrumentation_mode;
 
   bool instrument_cross_module_calls;
@@ -211,6 +213,7 @@ private:
   // friend class Asssembler;
   friend class X86Assembler;
   friend class ModuleInfo;
+  friend class UnwindGenerator;
 };
 
 class ModuleInfo {
@@ -246,6 +249,8 @@ class ModuleInfo {
 
   std::unordered_set<size_t> invalid_instructions;
   std::unordered_map<size_t, size_t> tracepoints;
+
+  UnwindData* unwind_data;
 
   // clients can use this to store additional data
   // about the module

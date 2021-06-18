@@ -43,6 +43,7 @@ set (cross_platform_files
      coverage.cpp
      litecov.h
      litecov.cpp
+     unwind.h
 )
 
 if (WIN32)

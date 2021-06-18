@@ -142,7 +142,7 @@ void X86Assembler::JmpAddress(ModuleInfo *module, size_t address) {
   // just insert a jump to address
   tinyinst_.WriteCode(module, JMP_MEM, sizeof(JMP_MEM));
   if (tinyinst_.child_ptr_size == 4) {
-    FixDisp4(module, tinyinst_.GetCurrentInstrumentedAddress(module));
+    FixDisp4(module, (int32_t)tinyinst_.GetCurrentInstrumentedAddress(module));
   }
   tinyinst_.WritePointer(module, (size_t)address);
 }
