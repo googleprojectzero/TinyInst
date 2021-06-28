@@ -29,24 +29,24 @@ public:
   UnwindGenerator(TinyInst& tinyinst) : tinyinst_(tinyinst) {}
   virtual ~UnwindGenerator() = default;
 
-  void OnModuleInstrumented(ModuleInfo* module) { }
-  void OnModuleUninstrumented(ModuleInfo* module) { }
+  virtual void OnModuleInstrumented(ModuleInfo* module) { }
+  virtual void OnModuleUninstrumented(ModuleInfo* module) { }
 
-  size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
+  virtual size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
     return IP;
   }
 
-  void OnBasicBlockStart(ModuleInfo* module,
+  virtual void OnBasicBlockStart(ModuleInfo* module,
                          size_t original_address,
                          size_t translated_address)
   { }
 
-  void OnInstruction(ModuleInfo* module,
+  virtual void OnInstruction(ModuleInfo* module,
                      size_t original_address,
                      size_t translated_address)
   { }
 
-  void OnBasicBlockEnd(ModuleInfo* module,
+  virtual void OnBasicBlockEnd(ModuleInfo* module,
                        size_t original_address,
                        size_t translated_address)
   { }

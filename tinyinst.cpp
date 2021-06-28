@@ -364,8 +364,12 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
                                           instruction_address,
                                           global_indirect);
 
+  size_t continue_address = (size_t)module->instrumented_code_remote + entry_offset;
+
+  continue_address = unwind_generator->MaybeRedirectExecution(module, continue_address);
+
   // redirect execution to just created entry which should handle it immediately
-  SetRegister(ARCH_PC, (size_t)module->instrumented_code_remote + entry_offset);
+  SetRegister(ARCH_PC, continue_address);
   return true;
 }
 
@@ -760,7 +764,7 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
 
   translated_address = unwind_generator->MaybeRedirectExecution(module, translated_address);
 
-  SetRegister(RIP, translated_address);
+  SetRegister(ARCH_PC, translated_address);
 
   return true;
 }
