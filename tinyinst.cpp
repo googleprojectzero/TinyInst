@@ -366,7 +366,9 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
 
   size_t continue_address = (size_t)module->instrumented_code_remote + entry_offset;
 
-  continue_address = unwind_generator->MaybeRedirectExecution(module, continue_address);
+  if (target_module) {
+    continue_address = unwind_generator->MaybeRedirectExecution(target_module, continue_address);
+  }
 
   // redirect execution to just created entry which should handle it immediately
   SetRegister(ARCH_PC, continue_address);
