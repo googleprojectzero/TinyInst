@@ -425,6 +425,49 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
   }
 }
 
+
+void Debugger::GetSectionAndSlide(void *mach_header_address,
+                                  const char segname[16],
+                                  const char sectname[16],
+                                  section_64 *ret_section,
+                                  size_t *file_vm_slide) {
+  mach_header_64 mach_header;
+  GetMachHeader(mach_header_address, &mach_header);
+
+  void *load_commands_buffer = NULL;
+  GetLoadCommandsBuffer(mach_header_address, &mach_header, &load_commands_buffer);
+
+  segment_command_64 *text_cmd = NULL;
+  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
+  if (text_cmd == NULL) {
+    FATAL("Unable to find __TEXT command in GetSectionAndSlide\n");
+  }
+  *file_vm_slide = (size_t)mach_header_address - text_cmd->vmaddr;
+
+  segment_command_64 *seg_cmd = NULL;
+  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, segname, &seg_cmd);
+  if (seg_cmd == NULL) {
+    FATAL("Unable to find %s command in GetSectionAndSlide\n", segname);
+  }
+
+  bool found_section = false;
+  size_t section_addr = (size_t)seg_cmd + sizeof(segment_command_64);
+  for (int i = 0; i < seg_cmd->nsects && !found_section; ++i) {
+    section_64 *section = (section_64*)section_addr;
+    if (!strcmp(section->sectname, sectname)) {
+      *ret_section = *section;
+      found_section = true;
+    }
+
+    section_addr += sizeof(struct section_64);
+  }
+
+  free(load_commands_buffer);
+  if (!found_section) {
+    FATAL("Unable to find __unwind_section section in GetSectionAndSlide\n");
+  }
+}
+
 void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size, MemoryProtection protection) {
   mach_port_t shm_port;
   if (address == 0)
@@ -805,7 +848,7 @@ void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
           if (krt == KERN_SUCCESS && alloc_address && new_range.from) {
             RemoteWrite((void*)new_range.from, new_range.data, range_size);
           } else {
-            FATAL("Unable to re-allocate memory after deallocate in ExtractCodeRanges\n");
+            FATAL("Unable to re-allocate memory after deallocate in ExtractSegmentCodeRanges\n");
           }
         }
 
@@ -893,7 +936,7 @@ void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max
   segment_command_64 *text_cmd = NULL;
   GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
   if (text_cmd == NULL) {
-    FATAL("Unable to find __TEXT command in ExtractCodeRanges\n");
+    FATAL("Unable to find __TEXT command in GetImageSize\n");
   }
 
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;

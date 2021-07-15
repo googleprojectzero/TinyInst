@@ -33,6 +33,14 @@ limitations under the License.
 #include "instruction.h"
 #include "unwind.h"
 
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  // TO DO: Use the Windows version of UnwindGenerator
+#elif __APPLE__
+  #include "macOS/unwindmacos.hpp"
+  class UnwindDataMacOS;
+  class UnwindGeneratorMacOS;
+#endif
+
 
 // must be a power of two
 #define JUMPTABLE_SIZE 0x2000
@@ -214,6 +222,11 @@ private:
   friend class X86Assembler;
   friend class ModuleInfo;
   friend class UnwindGenerator;
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  // TO DO: Use the Windows version of UnwindGenerator
+#elif __APPLE__
+  friend class UnwindGeneratorMacOS;
+#endif
 };
 
 class ModuleInfo {
@@ -250,7 +263,11 @@ class ModuleInfo {
   std::unordered_set<size_t> invalid_instructions;
   std::unordered_map<size_t, size_t> tracepoints;
 
-  UnwindData* unwind_data;
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  // TO DO: Use the Windows version of UnwindGenerator
+#elif __APPLE__
+  UnwindDataMacOS *unwind_data;
+#endif
 
   // clients can use this to store additional data
   // about the module

@@ -285,6 +285,12 @@ protected:
   
   void *GetTargetMethodAddress() { return target_address; }
 
+  void GetSectionAndSlide(void *mach_header_address,
+                          const char segname[16],
+                          const char sectname[16],
+                          section_64 *ret_section,
+                          size_t *file_vm_slide);
+
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;

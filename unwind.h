@@ -21,6 +21,7 @@ class TinyInst;
 class ModuleInfo;
 
 class UnwindData {
+public:
   virtual ~UnwindData() = default;
 };
 

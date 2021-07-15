@@ -366,7 +366,9 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
 
   size_t continue_address = (size_t)module->instrumented_code_remote + entry_offset;
 
-  continue_address = unwind_generator->MaybeRedirectExecution(module, continue_address);
+  if (target_module) {
+    continue_address = unwind_generator->MaybeRedirectExecution(target_module, continue_address);
+  }
 
   // redirect execution to just created entry which should handle it immediately
   SetRegister(ARCH_PC, continue_address);
@@ -995,8 +997,11 @@ void TinyInst::Init(int argc, char **argv) {
 #endif
   assembler_->Init();
 
-  // TODO: Replace with os-specific implementatopm
-  unwind_generator = new UnwindGenerator(*this);
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  // TO DO: Use the Windows version of UnwindGenerator
+#elif __APPLE__
+  unwind_generator = new UnwindGeneratorMacOS(*this);
+#endif
 
   instrumentation_disabled = false;
 
