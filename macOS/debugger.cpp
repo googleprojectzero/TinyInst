@@ -404,10 +404,10 @@ void Debugger::GetLoadCommandsBuffer(void *mach_header_address,
 }
 
 template <class TCMD>
-void Debugger::GetLoadCommand(mach_header_64 mach_header,
+bool Debugger::GetLoadCommand(mach_header_64 mach_header,
                               void *load_commands_buffer,
                               uint32_t load_cmd_type,
-                              const char segname[16],
+                              const char *segname,
                               TCMD **ret_command) {
   uint64_t load_cmd_addr = (uint64_t)load_commands_buffer;
   for (int i = 0; i < mach_header.ncmds; ++i) {
@@ -417,20 +417,22 @@ void Debugger::GetLoadCommand(mach_header_64 mach_header,
       if (load_cmd_type != LC_SEGMENT_64
           || !strcmp(((segment_command_64*)t_cmd)->segname, segname)) {
         *ret_command = (TCMD*)load_cmd;
-        return;
+        return true;
       }
     }
 
     load_cmd_addr += load_cmd->cmdsize;
   }
+
+  return false;
 }
 
 
-void Debugger::GetSectionAndSlide(void *mach_header_address,
-                                  const char segname[16],
-                                  const char sectname[16],
-                                  section_64 *ret_section,
-                                  size_t *file_vm_slide) {
+bool Debugger::GetSectionAndSlide(void *mach_header_address,
+                                 const char *segname,
+                                 const char *sectname,
+                                 section_64 *ret_section,
+                                 size_t *file_vm_slide) {
   mach_header_64 mach_header;
   GetMachHeader(mach_header_address, &mach_header);
 
@@ -438,15 +440,13 @@ void Debugger::GetSectionAndSlide(void *mach_header_address,
   GetLoadCommandsBuffer(mach_header_address, &mach_header, &load_commands_buffer);
 
   segment_command_64 *text_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
-  if (text_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
     FATAL("Unable to find __TEXT command in GetSectionAndSlide\n");
   }
   *file_vm_slide = (size_t)mach_header_address - text_cmd->vmaddr;
 
   segment_command_64 *seg_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, segname, &seg_cmd);
-  if (seg_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, segname, &seg_cmd)) {
     FATAL("Unable to find %s command in GetSectionAndSlide\n", segname);
   }
 
@@ -459,13 +459,11 @@ void Debugger::GetSectionAndSlide(void *mach_header_address,
       found_section = true;
     }
 
-    section_addr += sizeof(struct section_64);
+    section_addr += sizeof(section_64);
   }
 
   free(load_commands_buffer);
-  if (!found_section) {
-    FATAL("Unable to find __unwind_section section in GetSectionAndSlide\n");
-  }
+  return found_section;
 }
 
 void *Debugger::MakeSharedMemory(mach_vm_address_t address, size_t size, MemoryProtection protection) {
@@ -756,8 +754,7 @@ void Debugger::ExtractCodeRanges(void *base_address,
   GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
 
   segment_command_64 *text_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
-  if (text_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
     FATAL("Unable to find __TEXT command in ExtractCodeRanges\n");
   }
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
@@ -934,8 +931,7 @@ void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max
   }
 
   segment_command_64 *text_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
-  if (text_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
     FATAL("Unable to find __TEXT command in GetImageSize\n");
   }
 
@@ -958,8 +954,7 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
 
   entry_point_command *entry_point_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_MAIN, NULL, &entry_point_cmd);
-  if (entry_point_cmd) {
+  if (GetLoadCommand(mach_header, load_commands_buffer, LC_MAIN, NULL, &entry_point_cmd)) {
     uint64_t entryoff = entry_point_cmd->entryoff;
 
     free(load_commands_buffer);
@@ -970,8 +965,7 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   // Look up LC_UNIXTHREAD instead
 
   thread_command *tc;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_UNIXTHREAD, NULL, &tc);
-  if(tc == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_UNIXTHREAD, NULL, &tc)) {
     FATAL("Unable to find entry point in the executable module");
   }
 
@@ -982,8 +976,7 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   ARCH_THREAD_STATE_T *state = (ARCH_THREAD_STATE_T *)((char *)tc + 4 * sizeof(uint32_t));
 
   segment_command_64 *text_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
-  if (text_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
     FATAL("Unable to find __TEXT command in GetModuleEntrypoint\n");
   }
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
@@ -1012,20 +1005,17 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
   GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
 
   symtab_command *symtab_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SYMTAB, NULL, &symtab_cmd);
-  if (symtab_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SYMTAB, NULL, &symtab_cmd)) {
     FATAL("Unable to find SYMTAB command in GetSymbolAddress\n");
   }
 
   segment_command_64 *linkedit_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__LINKEDIT", &linkedit_cmd);
-  if (linkedit_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__LINKEDIT", &linkedit_cmd)) {
     FATAL("Unable to find __LINKEDIT command in GetSymbolAddress\n");
   }
 
   segment_command_64 *text_cmd = NULL;
-  GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd);
-  if (text_cmd == NULL) {
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
     FATAL("Unable to find __TEXT command in GetSymbolAddress\n");
   }
 

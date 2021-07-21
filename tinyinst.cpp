@@ -48,6 +48,7 @@ ModuleInfo::ModuleInfo() {
   instrumented_code_remote = NULL;
   instrumented_code_remote_previous = NULL;
   instrumented_code_size = 0;
+  unwind_data = NULL;
 }
 
 void ModuleInfo::ClearInstrumentation() {
@@ -997,12 +998,6 @@ void TinyInst::Init(int argc, char **argv) {
 #endif
   assembler_->Init();
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  // TO DO: Use the Windows version of UnwindGenerator
-#elif __APPLE__
-  unwind_generator = new UnwindGeneratorMacOS(*this);
-#endif
-
   instrumentation_disabled = false;
 
   instrument_modules_on_load = GetBinaryOption("-instrument_modules_on_load", argc, argv, false);
@@ -1038,5 +1033,16 @@ void TinyInst::Init(int argc, char **argv) {
       indirect_instrumentation_mode = II_AUTO;
     else
       FATAL("Unknown indirect instrumentation mode");
+  }
+
+  generate_unwind = GetBinaryOption("-generate_unwind", argc, argv, false);
+  if (!generate_unwind) {
+    unwind_generator = new UnwindGenerator(*this);
+  } else {
+  #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+    // TO DO: Use the Windows version of UnwindGenerator
+  #elif __APPLE__
+    unwind_generator = new UnwindGeneratorMacOS(*this);
+  #endif
   }
 }

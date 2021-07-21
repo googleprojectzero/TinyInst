@@ -285,9 +285,9 @@ protected:
   
   void *GetTargetMethodAddress() { return target_address; }
 
-  void GetSectionAndSlide(void *mach_header_address,
-                          const char segname[16],
-                          const char sectname[16],
+  bool GetSectionAndSlide(void *mach_header_address,
+                          const char *segname,
+                          const char *sectname,
                           section_64 *ret_section,
                           size_t *file_vm_slide);
 
@@ -370,10 +370,10 @@ private:
   void GetLoadCommandsBuffer(void *mach_header_address, const mach_header_64 *mach_header, void **load_commands);
 
   template <class TCMD>
-  void GetLoadCommand(mach_header_64 mach_header,
+  bool GetLoadCommand(mach_header_64 mach_header,
                       void *load_commands_buffer,
                       uint32_t load_cmd_type,
-                      const char segname[16],
+                      const char *segname,
                       TCMD **ret_command);
 
   void OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_t machHeaders[]);
