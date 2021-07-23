@@ -1039,10 +1039,11 @@ void TinyInst::Init(int argc, char **argv) {
   if (!generate_unwind) {
     unwind_generator = new UnwindGenerator(*this);
   } else {
-  #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-    // TO DO: Use the Windows version of UnwindGenerator
-  #elif __APPLE__
+  #ifdef __APPLE__
     unwind_generator = new UnwindGeneratorMacOS(*this);
+  #else
+    WARN("Unwind generator not implemented for the current platform")
+    unwind_generator = new UnwindGenerator(*this);
   #endif
   }
 }

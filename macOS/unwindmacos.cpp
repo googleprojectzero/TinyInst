@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include "unwindmacos.hpp"
+#include "unwindmacos.h"
 
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
@@ -28,9 +28,13 @@ UnwindDataMacOS::UnwindDataMacOS() {
   last_encoding_lookup = LastEncodingLookup();
 }
 
+UnwindDataMacOS::~UnwindDataMacOS() {
+  free(unwind_section_buffer);
+  unwind_section_buffer = NULL;
+}
+
 void UnwindDataMacOS::AddEncoding(size_t original_address, size_t translated_address) {
   if (encoding_map.empty()) {
-    last_encoding_lookup = LastEncodingLookup();
     return;
   }
 
@@ -112,7 +116,6 @@ void UnwindGeneratorMacOS::OnBasicBlockEnd(ModuleInfo* module,
 }
 
 void UnwindGeneratorMacOS::OnModuleUninstrumented(ModuleInfo *module) {
-  free(((UnwindDataMacOS *)module->unwind_data)->unwind_section_buffer);
   delete module->unwind_data;
   module->unwind_data = NULL;
 }
@@ -120,21 +123,23 @@ void UnwindGeneratorMacOS::OnModuleUninstrumented(ModuleInfo *module) {
 void UnwindGeneratorMacOS::PopulateEncodingMapFirstLevel(ModuleInfo *module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  if (unwind_data->unwind_section_header->indexSectionOffset
-      + unwind_data->unwind_section_header->indexCount
+  unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
+
+  if (unwind_section_header->indexSectionOffset
+      + unwind_section_header->indexCount
         * sizeof(unwind_info_section_header_index_entry) >= unwind_data->unwind_section_size) {
     FATAL("The first-level indexSection array is located outside the Unwind Section buffer\n");
   }
   size_t curr_first_level_entry_addr = (size_t)unwind_data->unwind_section_buffer
-                                       + unwind_data->unwind_section_header->indexSectionOffset;
+                                       + unwind_section_header->indexSectionOffset;
 
   // last entry is a sentinel entry
   // (secondLevelPagesSectionOffset == 0, functionOffset == maximum_mapped_address + 1)
-  for (int entry_cnt = 0; entry_cnt < unwind_data->unwind_section_header->indexCount; ++entry_cnt) {
+  for (int entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
     unwind_info_section_header_index_entry *curr_first_level_entry =
       (unwind_info_section_header_index_entry *)curr_first_level_entry_addr;
 
-    if (entry_cnt + 1 == unwind_data->unwind_section_header->indexCount) { // Sentinel entry
+    if (entry_cnt + 1 == unwind_section_header->indexCount) { // Sentinel entry
       unwind_data->encoding_map[(size_t)module->module_header
                                 + curr_first_level_entry->functionOffset] = 0;
     } else {
@@ -194,16 +199,19 @@ void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
     uint32_t curr_entry_func_offset = UNWIND_INFO_COMPRESSED_ENTRY_FUNC_OFFSET(curr_second_level_entry);
 
     compact_unwind_encoding_t encoding;
-    if (curr_entry_encoding_index < unwind_data->unwind_section_header->commonEncodingsArrayCount) {
-      encoding = *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
-                                               + unwind_data->unwind_section_header->commonEncodingsArraySectionOffset
-                                               + curr_entry_encoding_index * sizeof(compact_unwind_encoding_t));
+    unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
+    if (curr_entry_encoding_index < unwind_section_header->commonEncodingsArrayCount) {
+      encoding =
+        *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
+                                      + unwind_section_header->commonEncodingsArraySectionOffset
+                                      + curr_entry_encoding_index * sizeof(compact_unwind_encoding_t));
     } else {
-      encoding = *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
-                                               + second_level_header->encodingsPageOffset
-                                               + (curr_entry_encoding_index
-                                                  - unwind_data->unwind_section_header->commonEncodingsArrayCount)
-                                                 * sizeof(compact_unwind_encoding_t));
+      encoding =
+        *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
+                                      + second_level_header->encodingsPageOffset
+                                      + (curr_entry_encoding_index
+                                         - unwind_section_header->commonEncodingsArrayCount)
+                                        * sizeof(compact_unwind_encoding_t));
     }
 
     unwind_data->encoding_map[(uint64_t)module->module_header

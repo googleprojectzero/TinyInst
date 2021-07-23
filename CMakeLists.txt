@@ -79,7 +79,7 @@ elseif (APPLE)
        macOS/mig_server.h
        macOS/mig_server.c
        macOS/unwindmacos.cpp
-       macOS/unwindmacos.hpp
+       macOS/unwindmacos.h
   )
 endif()
 

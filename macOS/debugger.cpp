@@ -447,7 +447,7 @@ bool Debugger::GetSectionAndSlide(void *mach_header_address,
 
   segment_command_64 *seg_cmd = NULL;
   if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, segname, &seg_cmd)) {
-    FATAL("Unable to find %s command in GetSectionAndSlide\n", segname);
+    return false;
   }
 
   bool found_section = false;

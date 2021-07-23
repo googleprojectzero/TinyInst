@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#ifndef unwindmacos_hpp
-#define unwindmacos_hpp
+#ifndef unwindmacos_h
+#define unwindmacos_h
 
 #include <vector>
 #include <map>
@@ -28,7 +28,7 @@ limitations under the License.
 class UnwindDataMacOS: public UnwindData {
 public:
   UnwindDataMacOS();
-  ~UnwindDataMacOS() = default;
+  ~UnwindDataMacOS();
 
   void *unwind_section_address;
   uint64_t unwind_section_size;
@@ -64,7 +64,7 @@ public:
 
     LastEncodingLookup() {
       encoding = 0;
-      original_min_address = -1;
+      original_min_address = (size_t)(-1);
       original_max_address = 0;
     }
 
@@ -76,10 +76,10 @@ public:
       original_max_address(original_max_address)
     {}
 
-    bool IsValid() {
+    inline bool IsValid() {
       return encoding != 0
-             && original_min_address != 0 && original_min_address != -1
-             && original_max_address != 0 && original_max_address != -1;
+             && original_min_address != 0 && original_min_address != (size_t)(-1)
+             && original_max_address != 0 && original_max_address != (size_t)(-1);
     }
   };
 
@@ -123,4 +123,4 @@ private:
                                   size_t second_level_page_addr);
 };
 
-#endif /* unwindmacos_hpp */
+#endif /* unwindmacos_h */
