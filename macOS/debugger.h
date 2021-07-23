@@ -30,6 +30,41 @@ extern "C" {
   #include "macOS/mig_server.h"
 }
 
+#ifdef ARM64
+  #define MAX_NUM_REG_ARGS 8
+  #define ARCH_SP SP
+  #define ARCH_PC PC
+  #define ARCH_RETURN_VALUE_REGISTER X0
+  #define ARCH_THREAD_STATE ARM_THREAD_STATE64
+  #define ARCH_THREAD_STATE_COUNT ARM_THREAD_STATE64_COUNT
+  #define ARCH_THREAD_STATE_T arm_thread_state64_t
+
+  #define ARCH_FPU_STATE ARM_NEON_STATE64
+  #define ARCH_FPU_STATE_COUNT ARM_NEON_STATE64_COUNT
+  #define ARCH_FPU_STATE_T arm_neon_state64_t
+
+#else
+  #define MAX_NUM_REG_ARGS 6
+  #define ARCH_SP RSP
+  #define ARCH_PC RIP
+  #define ARCH_RETURN_VALUE_REGISTER RAX
+  #define ARCH_THREAD_STATE x86_THREAD_STATE64
+  #define ARCH_THREAD_STATE_COUNT x86_THREAD_STATE64_COUNT
+  #define ARCH_THREAD_STATE_T x86_thread_state64_t
+
+  #define ARCH_FPU_STATE x86_FLOAT_STATE64
+  #define ARCH_FPU_STATE_COUNT x86_FLOAT_STATE64_COUNT
+  #define ARCH_FPU_STATE_T x86_float_state64_t
+
+#endif
+
+struct SavedRegisters {
+  ARCH_THREAD_STATE_T gpr_registers;
+  mach_msg_type_number_t gpr_count;
+  ARCH_FPU_STATE_T fpu_registers;
+  mach_msg_type_number_t fpu_count;
+};
+
 enum DebuggerStatus {
   DEBUGGER_NONE,
   DEBUGGER_CONTINUE,
@@ -290,6 +325,9 @@ protected:
                           const char *sectname,
                           section_64 *ret_section,
                           size_t *file_vm_slide);
+  
+  void SaveRegisters(SavedRegisters *registers);
+  void RestoreRegisters(SavedRegisters *registers);
 
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
