@@ -78,6 +78,8 @@ elseif (APPLE)
        macOS/mig_client.c
        macOS/mig_server.h
        macOS/mig_server.c
+       macOS/unwindmacos.cpp
+       macOS/unwindmacos.h
   )
 endif()
 
