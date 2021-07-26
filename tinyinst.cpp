@@ -1042,7 +1042,7 @@ void TinyInst::Init(int argc, char **argv) {
   #ifdef __APPLE__
     unwind_generator = new UnwindGeneratorMacOS(*this);
   #else
-    WARN("Unwind generator not implemented for the current platform")
+    WARN("Unwind generator not implemented for the current platform");
     unwind_generator = new UnwindGenerator(*this);
   #endif
   }

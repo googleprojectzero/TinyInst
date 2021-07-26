@@ -48,24 +48,6 @@ limitations under the License.
   #define _POSIX_SPAWN_DISABLE_ASLR 0x0100
 #endif
 
-#ifdef ARM64
-  #define MAX_NUM_REG_ARGS 8
-  #define ARCH_SP SP
-  #define ARCH_PC PC
-  #define ARCH_RETURN_VALUE_REGISTER X0
-  #define ARCH_THREAD_STATE ARM_THREAD_STATE64
-  #define ARCH_THREAD_STATE_COUNT ARM_THREAD_STATE64_COUNT
-  #define ARCH_THREAD_STATE_T arm_thread_state64_t
-#else
-  #define MAX_NUM_REG_ARGS 6
-  #define ARCH_SP RSP
-  #define ARCH_PC RIP
-  #define ARCH_RETURN_VALUE_REGISTER RAX
-  #define ARCH_THREAD_STATE x86_THREAD_STATE64
-  #define ARCH_THREAD_STATE_COUNT x86_THREAD_STATE64_COUNT
-  #define ARCH_THREAD_STATE_T x86_thread_state64_t
-#endif
-
 extern char **environ;
 
 std::unordered_map<task_t, class Debugger*> Debugger::task_to_debugger_map;
@@ -1346,6 +1328,47 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
       }
       dbg_continue_status = KERN_FAILURE;
   }
+}
+
+void Debugger::SaveRegisters(SavedRegisters *registers) {
+  if((*(mach_exception->new_state_cnt)) * sizeof(mach_exception->new_state[0]) > sizeof(ARCH_THREAD_STATE_T)) {
+    FATAL("Unexpected thread state size");
+  }
+  
+  registers->gpr_count = *(mach_exception->new_state_cnt);
+  
+  memcpy(&registers->gpr_registers,
+         mach_exception->new_state,
+         registers->gpr_count * sizeof(natural_t));
+  
+  kern_return_t ret = thread_get_state(mach_exception->thread_port,
+                                       ARCH_FPU_STATE,
+                                       (thread_state_t)&registers->fpu_registers,
+                                       &registers->fpu_count);
+  
+  if(ret != KERN_SUCCESS) {
+    FATAL("Error getting FPU registers");
+  }
+}
+
+void Debugger::RestoreRegisters(SavedRegisters *registers) {
+  if(*mach_exception->new_state_cnt != registers->gpr_count) {
+    FATAL("Unexpected thread state size");
+  }
+
+  memcpy(mach_exception->new_state,
+         &registers->gpr_registers,
+         registers->gpr_count * sizeof(natural_t));
+  
+  kern_return_t ret = thread_set_state(mach_exception->thread_port,
+                                       ARCH_FPU_STATE,
+                                       (thread_state_t)&registers->fpu_registers,
+                                       registers->fpu_count);
+  
+  if(ret != KERN_SUCCESS) {
+    FATAL("Error setting FPU registers");
+  }
+
 }
 
 void Debugger::PrintContext() {
