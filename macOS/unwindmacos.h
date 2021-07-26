@@ -88,11 +88,11 @@ public:
 
 class UnwindGeneratorMacOS : public UnwindGenerator {
 public:
-  UnwindGeneratorMacOS(TinyInst& tinyinst) : UnwindGenerator(tinyinst) {}
+  UnwindGeneratorMacOS(TinyInst& tinyinst) : UnwindGenerator(tinyinst), register_frame_addr(0) {}
   ~UnwindGeneratorMacOS() = default;
 
-  void OnModuleInstrumented(ModuleInfo* module);
-  void OnModuleUninstrumented(ModuleInfo* module);
+  void OnModuleInstrumented(ModuleInfo* module) override;
+  void OnModuleUninstrumented(ModuleInfo* module) override;
 
   // To be implemented in an upcoming stage of Stack Unwinding on macOS
 //  size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
@@ -101,15 +101,19 @@ public:
 //
   void OnBasicBlockStart(ModuleInfo* module,
                          size_t original_address,
-                         size_t translated_address);
+                         size_t translated_address) override;
 
   void OnInstruction(ModuleInfo* module,
                      size_t original_address,
-                     size_t translated_address);
+                     size_t translated_address) override;
 
   void OnBasicBlockEnd(ModuleInfo* module,
                        size_t original_address,
-                       size_t translated_address);
+                       size_t translated_address) override;
+  
+  void OnModuleLoaded(void *module, char *module_name) override;
+  
+  bool HandleBreakpoint(void *address) override;
 
 private:
   void PopulateEncodingMapFirstLevel(ModuleInfo *module);
@@ -121,6 +125,8 @@ private:
   void PopulateEncodingMapRegular(ModuleInfo *module,
                                   unwind_info_section_header_index_entry *first_level_entry,
                                   size_t second_level_page_addr);
+  
+  size_t register_frame_addr;
 };
 
 #endif /* unwindmacos_h */

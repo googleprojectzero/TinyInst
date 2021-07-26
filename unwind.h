@@ -51,6 +51,10 @@ public:
                        size_t original_address,
                        size_t translated_address)
   { }
+  
+  virtual void OnModuleLoaded(void *module, char *module_name) { }
+  
+  virtual bool HandleBreakpoint(void *address) { return false; }
 
 protected:
 	TinyInst& tinyinst_;

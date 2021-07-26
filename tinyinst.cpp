@@ -301,6 +301,10 @@ bool TinyInst::HandleBreakpoint(void *address) {
     return true;
   }
 
+  if(unwind_generator->HandleBreakpoint(address)) {
+    return true;
+  }
+  
   return false;
 }
 
@@ -909,6 +913,8 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
 void TinyInst::OnModuleLoaded(void *module, char *module_name) {
   Debugger::OnModuleLoaded(module, module_name);
 
+  unwind_generator->OnModuleLoaded(module, module_name);
+  
   ModuleInfo *instrument_module = IsInstrumentModule(module_name);
   if (instrument_module) {
     OnInstrumentModuleLoaded(module, instrument_module);

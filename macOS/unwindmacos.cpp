@@ -255,3 +255,18 @@ void UnwindGeneratorMacOS::PopulateEncodingMapRegular(ModuleInfo *module,
     curr_second_level_entry_addr += sizeof(unwind_info_regular_second_level_entry);
   }
 }
+
+void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
+  if(strcmp(module_name, "libunwind.dylib")) return;
+  
+  register_frame_addr = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"___register_frame");
+  
+  if(!register_frame_addr) {
+    FATAL("Error locating __register_frame\n");
+  }
+}
+
+bool UnwindGeneratorMacOS::HandleBreakpoint(void *address) {
+  // TODO(ifratric)
+  return false;
+}

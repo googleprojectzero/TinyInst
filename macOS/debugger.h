@@ -329,6 +329,8 @@ protected:
   void SaveRegisters(SavedRegisters *registers);
   void RestoreRegisters(SavedRegisters *registers);
 
+  void *GetSymbolAddress(void *base_address, char *symbol_name);
+
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;
   static std::mutex map_mutex;
@@ -425,7 +427,6 @@ private:
   void CreateException(MachException *mach_exception, Exception *exception);
   vm_prot_t MacOSProtectionFlags(MemoryProtection memory_protection);
 
-  void *GetSymbolAddress(void *base_address, char *symbol_name);
   void *GetTargetAddress(void *base_address);
 
   void RemoteProtect(void *address, size_t size, vm_prot_t protect);
