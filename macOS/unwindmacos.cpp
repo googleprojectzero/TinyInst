@@ -127,7 +127,7 @@ void UnwindGeneratorMacOS::PopulateEncodingMapFirstLevel(ModuleInfo *module) {
 
   if (unwind_section_header->indexSectionOffset
       + unwind_section_header->indexCount
-        * sizeof(unwind_info_section_header_index_entry) >= unwind_data->unwind_section_size) {
+        * sizeof(unwind_info_section_header_index_entry) > unwind_data->unwind_section_size) {
     FATAL("The first-level indexSection array is located outside the Unwind Section buffer\n");
   }
   size_t curr_first_level_entry_addr = (size_t)unwind_data->unwind_section_buffer
@@ -159,7 +159,8 @@ void UnwindGeneratorMacOS::PopulateEncodingMapSecondLevel(ModuleInfo *module,
 
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  if (first_level_entry->secondLevelPagesSectionOffset >= unwind_data->unwind_section_size) {
+  if (first_level_entry->secondLevelPagesSectionOffset
+      + sizeof(uint32_t) > unwind_data->unwind_section_size) {
     FATAL("The second_level_page_header.kind field is located outside the Unwind Section buffer\n");
   }
   size_t second_level_page_addr = (size_t)unwind_data->unwind_section_buffer
@@ -180,7 +181,7 @@ void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
   if (first_level_entry->secondLevelPagesSectionOffset
-      + sizeof(unwind_info_compressed_second_level_page_header) >= unwind_data->unwind_section_size) {
+      + sizeof(unwind_info_compressed_second_level_page_header) > unwind_data->unwind_section_size) {
     FATAL("The compressed second_level_page_header is located outside the Unwind Section buffer\n");
   }
   unwind_info_compressed_second_level_page_header *second_level_header =
@@ -188,15 +189,17 @@ void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
 
   if (first_level_entry->secondLevelPagesSectionOffset
       + second_level_header->entryPageOffset
-      + second_level_header->entryCount * sizeof(uint32_t) >= unwind_data->unwind_section_size) {
+      + second_level_header->entryCount * sizeof(uint32_t) > unwind_data->unwind_section_size) {
     FATAL("The compressed second-level array is located outside the Unwind Section buffer\n");
   }
 
   size_t curr_second_level_entry_addr = second_level_page_addr + second_level_header->entryPageOffset;
   for (int curr_cnt = 0; curr_cnt < second_level_header->entryCount; ++curr_cnt) {
     uint32_t curr_second_level_entry = *(uint32_t*)curr_second_level_entry_addr;
-    uint32_t curr_entry_encoding_index = UNWIND_INFO_COMPRESSED_ENTRY_ENCODING_INDEX(curr_second_level_entry);
-    uint32_t curr_entry_func_offset = UNWIND_INFO_COMPRESSED_ENTRY_FUNC_OFFSET(curr_second_level_entry);
+    uint32_t curr_entry_encoding_index =
+      UNWIND_INFO_COMPRESSED_ENTRY_ENCODING_INDEX(curr_second_level_entry);
+    uint32_t curr_entry_func_offset =
+      UNWIND_INFO_COMPRESSED_ENTRY_FUNC_OFFSET(curr_second_level_entry);
 
     compact_unwind_encoding_t encoding;
     unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
@@ -228,7 +231,7 @@ void UnwindGeneratorMacOS::PopulateEncodingMapRegular(ModuleInfo *module,
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
   if (first_level_entry->secondLevelPagesSectionOffset
-      + sizeof(unwind_info_regular_second_level_page_header) >= unwind_data->unwind_section_size) {
+      + sizeof(unwind_info_regular_second_level_page_header) > unwind_data->unwind_section_size) {
     FATAL("The regular second_level_page_header is located outside the Unwind Section buffer\n");
   }
   unwind_info_regular_second_level_page_header *second_level_header =
@@ -237,7 +240,7 @@ void UnwindGeneratorMacOS::PopulateEncodingMapRegular(ModuleInfo *module,
   if (first_level_entry->secondLevelPagesSectionOffset
       + second_level_header->entryPageOffset
       + second_level_header->entryCount
-        * sizeof(unwind_info_regular_second_level_entry) >= unwind_data->unwind_section_size) {
+        * sizeof(unwind_info_regular_second_level_entry) > unwind_data->unwind_section_size) {
     FATAL("The regular second-level array is located outside the Unwind Section buffer\n");
   }
 
