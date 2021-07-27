@@ -54,7 +54,7 @@ public:
   
   virtual void OnModuleLoaded(void *module, char *module_name) { }
   
-  virtual bool HandleBreakpoint(void *address) { return false; }
+  virtual bool HandleBreakpoint(ModuleInfo* module, void *address) { return false; }
 
 protected:
 	TinyInst& tinyinst_;

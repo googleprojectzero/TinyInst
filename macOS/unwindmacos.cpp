@@ -26,6 +26,7 @@ UnwindDataMacOS::UnwindDataMacOS() {
   unwind_section_buffer = NULL;
   unwind_section_header = NULL;
   last_encoding_lookup = LastEncodingLookup();
+  have_data_to_register = false;
 }
 
 UnwindDataMacOS::~UnwindDataMacOS() {
@@ -266,7 +267,155 @@ void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
   }
 }
 
-bool UnwindGeneratorMacOS::HandleBreakpoint(void *address) {
-  // TODO(ifratric)
-  return false;
+bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  auto it = unwind_data->register_breakpoints.find((size_t)address);
+  
+  if(it == unwind_data->register_breakpoints.end()) {
+    return false;
+  }
+
+  // printf("registration completed\n");
+
+  tinyinst_.RestoreRegisters(&it->second.saved_registers);
+  
+  tinyinst_.SetRegister(TinyInst::ARCH_PC, it->second.continue_ip);
+  
+  // one-time breakpoint
+  unwind_data->register_breakpoints.erase(it);
+  
+  return true;
+}
+
+// the idea is that this produces a minimal valid FDE
+// but since __register_frame doesn't return a value
+// it's not possible to test if the registration actually succeeds
+size_t UnwindGeneratorMacOS::WriteTestFde(ModuleInfo *module) {
+  // need to write a CIE first
+  // see CFI_Parser<A>::parseCIE
+  unsigned char test_cie[] =
+  {
+    0x0d, 0x00, 0x00, 0x00, // CIE length
+    0x00, 0x00, 0x00, 0x00, // CIE id, must be zero
+    0x03, // version
+    0x00, // empty augmentation string
+    0x00, // code aligment factor, LEB128 encoded
+    0x00, // data aligment factor, LEB128 encoded
+    0x00 // return address register, LEB128 encoded
+  };
+  tinyinst_.WriteCode(module, test_cie, sizeof(test_cie));
+  
+  size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+  
+  // see CFI_Parser<A>::decodeFDE
+  unsigned char test_fde[] = {
+    0x18, 0x00, 0x00, 0x00, // FDE length
+    0x11, 0x00, 0x00, 0x00, // offset to CIE from current location, this is sizeof(test_cie) + 4(current offset into fde)
+    0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // PC start, 0x1000 here
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // PC range, 0 here
+  };
+  tinyinst_.WriteCode(module, test_cie, sizeof(test_cie));
+
+  return fde_address;
+}
+
+size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  // TODO(aniculae): set unwind_data->have_data_to_register variable
+  // if there are new FDEs that need to be registered
+  // since the last call to MaybeRedirectExecution.
+  // If we're emitting registration code every time, we'll very
+  // quickly run out of allocated space for instrumented code
+  if(!unwind_data->have_data_to_register) {
+    return IP;
+  }
+  
+  size_t code_size_before = module->instrumented_code_allocated;
+
+  //TODO(aniculae): Write everything that needs to be written to the target process here
+  std::vector<size_t> fde_addresses;
+  size_t test_fde_address = WriteTestFde(module);
+  fde_addresses.push_back(test_fde_address);
+  
+  size_t fde_array_start = tinyinst_.GetCurrentInstrumentedAddress(module);
+  
+  //TODO(aniculae): Write *addresses* of FDEs to-be-registered here
+  for(auto it = fde_addresses.begin(); it != fde_addresses.end(); it++) {
+    tinyinst_.WritePointer(module, *it);
+  }
+
+  size_t fde_array_end = tinyinst_.GetCurrentInstrumentedAddress(module);
+ 
+  if(!register_frame_addr) {
+    FATAL("Need to register frames, but the address of __register_frame() is still unknown\n");
+  }
+  
+  // address from which the target will continue execution
+  // now it's the same as fde_array_end, but that might change in the future
+  // if other stuff gets written before the next line
+  size_t continue_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+  
+  // make sure we aren't clobbering the stack
+  tinyinst_.assembler_->OffsetStack(module, -tinyinst_.sp_offset);
+
+  size_t assembly_offset = module->instrumented_code_allocated;
+  
+  unsigned char register_assembly_x86[] =
+  { 0x48, 0x8B, 0x1D, 0x13, 0x00, 0x00, 0x00, // mov rbx, [rip + offset]; rbx becomes the current array pointer
+    0x4C, 0x8B, 0x25, 0x14, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes the end array pointer
+    0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes __register_frame address
+    0xE9, 0x18, 0x00, 0x00, 0x00, // jmp 0x18
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array start addr goes here
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array end addr goes here
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // __register_frame addr goes here
+    0x4C, 0x39, 0xE3, // cmp rbx, r12
+    0x0F, 0x83, 0x0F, 0x00, 0x00, 0x00, // JAE 0x0F (loop end)
+    0x48, 0x8B, 0x3B, // mov rdi, [rbx]
+    0x41, 0xFF, 0xD5, // call r13
+    0x48, 0x83, 0xC3, 0x08, // add rbx, 8
+    0xE9, 0xe8, 0xff, 0xff, 0xff, // jmp to loop start
+   };
+  size_t register_assembly_x86_data_offset = 26;
+  
+  // write the assembly snippet that calls __register_frame
+  tinyinst_.WriteCode(module, register_assembly_x86, sizeof(register_assembly_x86));
+  
+  // fill out the missing pieces in the assembly snippet
+  tinyinst_.WritePointerAtOffset(module,
+                                 fde_array_start,
+                                 assembly_offset +
+                                 register_assembly_x86_data_offset);
+  tinyinst_.WritePointerAtOffset(module,
+                                 fde_array_end,
+                                 assembly_offset +
+                                 register_assembly_x86_data_offset + 8);
+  tinyinst_.WritePointerAtOffset(module,
+                                 register_frame_addr,
+                                 assembly_offset +
+                                 register_assembly_x86_data_offset + 16);
+  
+  // restore stack
+  tinyinst_.assembler_->OffsetStack(module, tinyinst_.sp_offset);
+
+  // insert a breakpoint instruction
+  size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+  tinyinst_.assembler_->Breakpoint(module);
+  
+  // save all registers and register a breakpoint
+  // the breakpoint is handled by UnwindGeneratorMacOS::HandleBreakpoint
+  SavedRegisters saved_registers;
+  tinyinst_.SaveRegisters(&saved_registers);
+  unwind_data->register_breakpoints[breakpoint_address] = {saved_registers, IP};
+  
+  // compute how much data we wrote and commit it all to the target process
+  size_t code_size_after = module->instrumented_code_allocated;
+  tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
+
+  // we registered everything we have so far
+  unwind_data->have_data_to_register = false;
+  
+  // give the target process the address to continue from
+  return continue_address;
 }

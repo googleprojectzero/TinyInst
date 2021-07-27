@@ -301,7 +301,7 @@ bool TinyInst::HandleBreakpoint(void *address) {
     return true;
   }
 
-  if(unwind_generator->HandleBreakpoint(address)) {
+  if(unwind_generator->HandleBreakpoint(module, address)) {
     return true;
   }
   

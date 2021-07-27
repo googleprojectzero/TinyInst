@@ -84,6 +84,14 @@ public:
   };
 
   LastEncodingLookup last_encoding_lookup;
+  
+  struct BreakpointData {
+    SavedRegisters saved_registers;
+    size_t continue_ip;
+  };
+  std::unordered_map<size_t, BreakpointData> register_breakpoints;
+  
+  bool have_data_to_register;
 };
 
 class UnwindGeneratorMacOS : public UnwindGenerator {
@@ -94,11 +102,8 @@ public:
   void OnModuleInstrumented(ModuleInfo* module) override;
   void OnModuleUninstrumented(ModuleInfo* module) override;
 
-  // To be implemented in an upcoming stage of Stack Unwinding on macOS
-//  size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
-//    return IP;
-//  }
-//
+  size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) override;
+
   void OnBasicBlockStart(ModuleInfo* module,
                          size_t original_address,
                          size_t translated_address) override;
@@ -113,7 +118,7 @@ public:
   
   void OnModuleLoaded(void *module, char *module_name) override;
   
-  bool HandleBreakpoint(void *address) override;
+  bool HandleBreakpoint(ModuleInfo* module, void *address) override;
 
 private:
   void PopulateEncodingMapFirstLevel(ModuleInfo *module);
@@ -125,6 +130,8 @@ private:
   void PopulateEncodingMapRegular(ModuleInfo *module,
                                   unwind_info_section_header_index_entry *first_level_entry,
                                   size_t second_level_page_addr);
+  
+  size_t WriteTestFde(ModuleInfo *module);
   
   size_t register_frame_addr;
 };
