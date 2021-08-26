@@ -21,20 +21,13 @@ limitations under the License.
 #include <inttypes.h>
 
 #include <list>
-using namespace std;
 
 #include "tinyinst.h"
 
-extern "C" {
-#include "xed/xed-interface.h"
-}
-
 #ifdef ARM64
-  // TODO: define arch_pc in common file
-  #define ARCH_PC PC
+  #include "arch/arm64/arm64_assembler.h"
 #else
-  #define ARCH_PC RIP
-#include "arch/x86/x86_assembler.h"
+  #include "arch/x86/x86_assembler.h"
 #endif
 
 ModuleInfo::ModuleInfo() {
@@ -181,6 +174,7 @@ void TinyInst::CommitCode(ModuleInfo *module, size_t start_offset, size_t size) 
   RemoteWrite(module->instrumented_code_remote + start_offset,
               module->instrumented_code_local + start_offset,
               size);
+
 }
 
 // Checks if there is sufficient space and writes code at the current offset
@@ -283,7 +277,6 @@ bool TinyInst::HandleBreakpoint(void *address) {
 
       printf("TRACE: Executing basic block, original at %p, instrumented at %p\n",
              (void *)iter->second, (void *)iter->first);
-
       return true;
     } else {
       printf("TRACE: Breakpoint\n");
@@ -323,6 +316,7 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
   size_t list_head_offset;
   size_t instruction_address = 0;
 
+  IndirectBreakpoinInfo bp_info = {};
   if ((size_t)address == module->br_indirect_newtarget_global) {
     is_indirect_breakpoint = true;
     global_indirect = true;
@@ -331,14 +325,13 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
     if (iter != module->br_indirect_newtarget_list.end()) {
       is_indirect_breakpoint = true;
       global_indirect = false;
+      bp_info = iter->second;
       list_head_offset = iter->second.list_head;
-      instruction_address = iter->second.source_bb;
     }
   }
-
   if (!is_indirect_breakpoint) return false;
 
-  size_t original_address = GetRegister(RAX);
+  size_t original_address = GetRegister(ORIG_ADDR_REG);
 
   // if it's a global indirect, list head must be calculated from target
   // otherwise it's a per-callsite indirect and the list head was set earlier
@@ -366,7 +359,7 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
                                           original_address,
                                           translated_address,
                                           list_head_offset,
-                                          instruction_address,
+                                          bp_info,
                                           global_indirect);
 
   size_t continue_address = (size_t)module->instrumented_code_remote + entry_offset;
@@ -388,7 +381,7 @@ size_t TinyInst::AddTranslatedJump(ModuleInfo *module,
                                    size_t original_target,
                                    size_t actual_target,
                                    size_t list_head_offset,
-                                   size_t edge_start_address,
+                                   IndirectBreakpoinInfo& breakpoint_info,
                                    bool global_indirect) {
   size_t entry_offset = module->instrumented_code_allocated;
 
@@ -408,7 +401,7 @@ size_t TinyInst::AddTranslatedJump(ModuleInfo *module,
   assembler_->TranslateJmp(module,
                            target_module,
                            original_target,
-                           edge_start_address,
+                           breakpoint_info,
                            global_indirect,
                            previous_offset);
 
@@ -493,7 +486,7 @@ void TinyInst::InstrumentIndirect(ModuleInfo *module,
 void TinyInst::TranslateBasicBlock(char *address,
                                    ModuleInfo *module,
                                    std::set<char *> *queue,
-                                   std::list<pair<uint32_t, uint32_t>> *offset_fixes) {
+                                   std::list<std::pair<uint32_t, uint32_t>> *offset_fixes) {
   uint32_t original_offset = (uint32_t)((size_t)address - (size_t)(module->min_address));
   uint32_t translated_offset = (uint32_t)module->instrumented_code_allocated;
 
@@ -524,7 +517,7 @@ void TinyInst::TranslateBasicBlock(char *address,
     assembler_->Breakpoint(module);
     module->tracepoints[breakpoint_address] = (size_t)address;
   } else if (GetTargetMethodAddress()) {
-    // hack, allow 1 byte of unused space at the beginning
+    // hack, allow 1 or 4 byte of unused space at the beginning
     // of the target method. This is needed because we
     // are setting a brekpoint here. If this breakpoint falls
     // into code inserted by the client, and the client modifies
@@ -597,8 +590,8 @@ void TinyInst::TranslateBasicBlock(char *address,
 // (e.g. jump, call targets) get added to the queue
 // and instrumented as well
 void TinyInst::TranslateBasicBlockRecursive(char *address, ModuleInfo *module) {
-  set<char *> queue;
-  list<pair<uint32_t, uint32_t>> offset_fixes;
+  std::set<char *> queue;
+  std::list<std::pair<uint32_t, uint32_t>> offset_fixes;
 
   size_t code_size_before = module->instrumented_code_allocated;
 
@@ -694,7 +687,7 @@ ModuleInfo *TinyInst::GetModuleFromInstrumented(size_t address) {
 void TinyInst::OnCrashed(Exception *exception_record) {
   char *address = (char *)exception_record->ip;
 
-  printf("Exception at address %p\n", address);
+  printf("Exception at address %p\n", static_cast<void*>(address));
   if (exception_record->type == ACCESS_VIOLATION) {
     // printf("Access type: %d\n", (int)exception_record->ExceptionInformation[0]);
     printf("Access address: %p\n", exception_record->access_address);
@@ -763,7 +756,7 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   if (!GetRegion(module, (size_t)address)) return false;
 
   if (trace_module_entries) {
-    printf("TRACE: Entered module %s at address %p\n", module->module_name.c_str(), address);
+    printf("TRACE: Entered module %s at address %p\n", module->module_name.c_str(), static_cast<void*>(address));
   }
 
   size_t translated_address = GetTranslatedAddress(module, (size_t)address);
@@ -999,6 +992,7 @@ void TinyInst::Init(int argc, char **argv) {
   Debugger::Init(argc, argv);
 
 #ifdef ARM64
+  assembler_ = new Arm64Assembler(*this);
 #else
   assembler_ = new X86Assembler(*this);
 #endif
@@ -1016,7 +1010,7 @@ void TinyInst::Init(int argc, char **argv) {
 
   sp_offset = GetIntOption("-stack_offset", argc, argv, 0);
 
-  list <char *> module_names;
+  std::list <char *> module_names;
   GetOptionAll("-instrument_module", argc, argv, &module_names);
   for (auto iter = module_names.begin(); iter != module_names.end(); iter++) {
     ModuleInfo *new_module = new ModuleInfo();

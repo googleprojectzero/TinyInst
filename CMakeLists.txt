@@ -13,24 +13,39 @@
 # limitations under the License.
 
 cmake_minimum_required(VERSION "3.1")
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
 # Determine whether TinyInst should be build for arm64 or x86
 if(APPLE AND NOT DEFINED ${ARCHITECTURE})
   EXECUTE_PROCESS(COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE)
+  if(${ARCHITECTURE} MATCHES arm64)
+    add_definitions(-DARM64)
+  endif()
 endif()
+
 add_subdirectory(third_party)
 
 project("tinyinst")
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
 
-set (arch_specific_files
-    arch/x86/x86_helpers.h
-    arch/x86/x86_helpers.cpp
-    arch/x86/x86_assembler.h
-    arch/x86/x86_assembler.cpp
-)
+if(${ARCHITECTURE} MATCHES arm64)
+  set (arch_specific_files
+      arch/arm64/reg.h
+      arch/arm64/arm64_helpers.h
+      arch/arm64/arm64_helpers.cpp
+      arch/arm64/arm64_assembler.h
+      arch/arm64/arm64_assembler.cpp
+  )
+else()
+  set (arch_specific_files
+      arch/x86/reg.h
+      arch/x86/x86_helpers.h
+      arch/x86/x86_helpers.cpp
+      arch/x86/x86_assembler.h
+      arch/x86/x86_assembler.cpp
+  )
+endif()
 
 set (cross_platform_files
      common.h
@@ -53,9 +68,9 @@ if (WIN32)
   )
 elseif (APPLE)
   if (${ARCHITECTURE} MATCHES arm64)
-    add_definitions(-DARM64)
     set(CMAKE_REQUIRED_LINK_OPTIONS "-arch;arm64")
   endif()
+
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/macOS/mig_client.c
            ${CMAKE_CURRENT_SOURCE_DIR}/macOS/mig_server.c
@@ -88,8 +103,14 @@ if(${ARCHITECTURE} MATCHES arm64)
   add_library(tinyinst STATIC
     common.h
     common.cpp
+    assembler.h
+    instruction.h
+    tinyinst.h
+    tinyinst.cpp
+    ${arch_specific_files}
     ${platform_specific_files}
   )
+  add_dependencies(tinyinst reil)
 else()
   add_library(tinyinst STATIC
     ${arch_specific_files}
@@ -98,18 +119,19 @@ else()
   )
   add_dependencies(tinyinst xed)
 endif()
+
 target_include_directories(tinyinst PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include
 )
-if (WIN32)  
-  target_link_libraries(tinyinst
-                        ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
-                        Dbghelp.lib
-  )
-elseif (APPLE)
-  if(${ARCHITECTURE} MATCHES arm64)
-  else()
+
+if(NOT (${ARCHITECTURE} MATCHES arm64))
+  if (WIN32)
+    target_link_libraries(tinyinst
+                          ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
+                          Dbghelp.lib
+    )
+  elseif (APPLE)
     target_link_libraries(tinyinst
                           ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/libxed.a
     )

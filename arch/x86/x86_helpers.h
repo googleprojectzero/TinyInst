@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#pragma once
+#ifndef ARCH_X86_X86_HELPERS_H
+#define ARCH_X86_X86_HELPERS_H
 
 extern "C" {
 #include "xed/xed-interface.h"
@@ -52,3 +53,5 @@ uint32_t GetInstructionLength(xed_encoder_request_t *inst);
 void FixRipDisplacement(xed_encoder_request_t *inst,
                         size_t mem_address,
                         size_t fixed_instruction_address);
+
+#endif  // ARCH_X86_X86_HELPERS_H

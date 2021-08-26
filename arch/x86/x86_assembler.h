@@ -14,20 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#ifndef X86ASSEMBLER_H
-#define X86ASSEMBLER_H
-
-#include "assembler.h"
+#ifndef ARCH_X86_X86_ASSEMBLER_H
+#define ARCH_X86_X86_ASSEMBLER_H
 
 extern "C" {
 #include "xed/xed-interface.h"
 }
 
+#include "assembler.h"
+
+
 #include "tinyinst.h"
 
 class X86Assembler : public Assembler {
  public:
-  // X86Assembler(TinyInst& tinyinst) : Assembler(tinyinst) {}
   using Assembler::Assembler;
   virtual ~X86Assembler() {}
   void Init() override;
@@ -62,7 +62,7 @@ class X86Assembler : public Assembler {
   void TranslateJmp(ModuleInfo *module,
                          ModuleInfo *target_module,
                          size_t original_target,
-                         size_t edge_start_address,
+                         IndirectBreakpoinInfo& breakpoint_info,
                          bool global_indirect,
                          size_t previous_offset) override;
   void InstrumentLocalIndirect(ModuleInfo *module,
@@ -94,4 +94,4 @@ class X86Assembler : public Assembler {
   int xed_mmode_;
 };
 
-#endif  // X86ASSEMBLER_H
+#endif  // ARCH_X86_X86_ASSEMBLER_H

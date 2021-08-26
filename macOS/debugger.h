@@ -25,6 +25,13 @@ limitations under the License.
 #include <vector>
 #include <mutex>
 
+
+#ifdef ARM64
+#include "arch/arm64/reg.h"
+#else
+#include "arch/x86/reg.h"
+#endif
+
 #include "macOS/machtarget.h"
 extern "C" {
   #include "macOS/mig_server.h"
@@ -32,9 +39,6 @@ extern "C" {
 
 #ifdef ARM64
   #define MAX_NUM_REG_ARGS 8
-  #define ARCH_SP SP
-  #define ARCH_PC PC
-  #define ARCH_RETURN_VALUE_REGISTER X0
   #define ARCH_THREAD_STATE ARM_THREAD_STATE64
   #define ARCH_THREAD_STATE_COUNT ARM_THREAD_STATE64_COUNT
   #define ARCH_THREAD_STATE_T arm_thread_state64_t
@@ -44,10 +48,8 @@ extern "C" {
   #define ARCH_FPU_STATE_T arm_neon_state64_t
 
 #else
+
   #define MAX_NUM_REG_ARGS 6
-  #define ARCH_SP RSP
-  #define ARCH_PC RIP
-  #define ARCH_RETURN_VALUE_REGISTER RAX
   #define ARCH_THREAD_STATE x86_THREAD_STATE64
   #define ARCH_THREAD_STATE_COUNT x86_THREAD_STATE64_COUNT
   #define ARCH_THREAD_STATE_T x86_thread_state64_t
@@ -55,7 +57,6 @@ extern "C" {
   #define ARCH_FPU_STATE x86_FLOAT_STATE64
   #define ARCH_FPU_STATE_COUNT x86_FLOAT_STATE64_COUNT
   #define ARCH_FPU_STATE_T x86_float_state64_t
-
 #endif
 
 struct SavedRegisters {
@@ -175,68 +176,6 @@ protected:
     READEXECUTE,
     READWRITEEXECUTE
   };
-
-#ifdef ARM64
-  enum Register {
-    X0 = 0,
-    X1,
-    X2,
-    X3,
-    X4,
-    X5,
-    X6,
-    X7,
-    X8,
-    X9,
-    X10,
-    X11,
-    X12,
-    X13,
-    X14,
-    X15,
-    X16,
-    X17,
-    X18,
-    X19,
-    X20,
-    X21,
-    X22,
-    X23,
-    X24,
-    X25,
-    X26,
-    X27,
-    X28,
-    X29,  // fp
-    X30,  // lr
-    X31,  // sp
-    PC,
-    CPSR,
-    FP,   // x29
-    LR,   // x30
-    SP,   // x31
-  };
-#else
-  enum Register {
-    RAX,
-    RCX,
-    RDX,
-    RBX,
-    RSP,
-    RBP,
-    RSI,
-    RDI,
-    R8,
-    R9,
-    R10,
-    R11,
-    R12,
-    R13,
-    R14,
-    R15,
-    RIP
-  };
-#endif
   
   enum TargetEndDetection {
     RETADDR_STACK_OVERWRITE,

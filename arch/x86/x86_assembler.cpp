@@ -220,7 +220,7 @@ void X86Assembler::WriteStack(ModuleInfo *module, int32_t offset) {
 void X86Assembler::TranslateJmp(ModuleInfo *module,
                                 ModuleInfo *target_module,
                                 size_t original_target,
-                                size_t edge_start_address,
+                                IndirectBreakpoinInfo& breakpoint_info,
                                 bool global_indirect,
                                 size_t previous_offset) {
 
@@ -255,7 +255,7 @@ void X86Assembler::TranslateJmp(ModuleInfo *module,
   }
 
   // consider indirect call/jump an edge and insert appropriate instrumentation
-  tinyinst_.InstrumentEdge(module, target_module, edge_start_address,
+  tinyinst_.InstrumentEdge(module, target_module, breakpoint_info.source_bb,
                            original_target);
 
   // jmp [actual_target]
@@ -322,7 +322,7 @@ void X86Assembler::InstrumentRet(ModuleInfo *module,
 }
 
 // converts an indirect jump/call into a MOV instruction
-// which moves the target of the indirect call into the RAX/EAX reguster
+// which moves the target of the indirect call into the RAX/EAX register
 // and writes this instruction into the code buffer
 void X86Assembler::MovIndirectTarget(ModuleInfo *module,
                                      Instruction &inst,
