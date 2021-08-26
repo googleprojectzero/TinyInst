@@ -23,6 +23,7 @@ limitations under the License.
 
 #include "instruction.h"
 
+struct IndirectBreakpoinInfo;
 class TinyInst;
 class ModuleInfo;
 
@@ -64,7 +65,7 @@ class Assembler {
   virtual void TranslateJmp(ModuleInfo *module,
                             ModuleInfo *target_module,
                             size_t original_target,
-                            size_t edge_start_address,
+                            IndirectBreakpoinInfo& breakpoint_info,
                             bool global_indirect,
                             size_t previous_offset) = 0;
   virtual void InstrumentLocalIndirect(ModuleInfo *module,

@@ -150,7 +150,7 @@ void MachTarget::ReplyToException(mach_msg_header_t *rpl) {
 
 void MachTarget::CleanUp() {
   /* restore saved exception ports */
-  for (int i = 0; i < saved_exception_types_count; ++i) {
+  for (uint32_t i = 0; i < saved_exception_types_count; ++i) {
       task_set_exception_ports(task,
                                saved_masks[i],
                                saved_ports[i],

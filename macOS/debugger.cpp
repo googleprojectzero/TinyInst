@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <thread>
 #include <algorithm>
 
@@ -139,7 +140,6 @@ void Debugger::RemoteProtect(void *address, size_t size, vm_prot_t protect) {
   mach_target->ProtectMemory((uint64_t)address, size, protect);
 }
 
-
 void Debugger::CreateException(MachException *mach_exception, Exception *exception) {
   exception->ip = (void*)GetRegister(ARCH_PC);
 
@@ -147,6 +147,7 @@ void Debugger::CreateException(MachException *mach_exception, Exception *excepti
     case EXC_BREAKPOINT:
       exception->type = BREAKPOINT;
 #ifdef ARM64
+      SetRegister(ARCH_PC, GetRegister(ARCH_PC) + 4);
       exception->ip = (void*)((uint64_t)exception->ip);
 #else
       exception->ip = (void*)((uint64_t)exception->ip - 1);
@@ -214,8 +215,6 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
     case X27:
     case X28:
     case X29:
-    case X30:
-    case X31:
       return &state->__x[r];
     case PC:
       return &state->__pc;
@@ -296,7 +295,7 @@ void Debugger::SetRegister(Register r, size_t value) {
 }
 
 #ifdef ARM64
-Debugger::Register Debugger::ArgumentToRegister(int arg) {
+Register Debugger::ArgumentToRegister(int arg) {
   switch (arg) {
     case 0:
       return X0;
@@ -328,7 +327,7 @@ Debugger::Register Debugger::ArgumentToRegister(int arg) {
   }
 }
 #else
-Debugger::Register Debugger::ArgumentToRegister(int arg) {
+Register Debugger::ArgumentToRegister(int arg) {
   switch (arg) {
     case 0:
       return RDI;
@@ -392,7 +391,7 @@ bool Debugger::GetLoadCommand(mach_header_64 mach_header,
                               const char *segname,
                               TCMD **ret_command) {
   uint64_t load_cmd_addr = (uint64_t)load_commands_buffer;
-  for (int i = 0; i < mach_header.ncmds; ++i) {
+  for (uint32_t i = 0; i < mach_header.ncmds; ++i) {
     load_command *load_cmd = (load_command *)load_cmd_addr;
     if (load_cmd->cmd == load_cmd_type) {
       TCMD *t_cmd = (TCMD*)load_cmd;
@@ -434,7 +433,7 @@ bool Debugger::GetSectionAndSlide(void *mach_header_address,
 
   bool found_section = false;
   size_t section_addr = (size_t)seg_cmd + sizeof(segment_command_64);
-  for (int i = 0; i < seg_cmd->nsects && !found_section; ++i) {
+  for (uint32_t i = 0; i < seg_cmd->nsects && !found_section; ++i) {
     section_64 *section = (section_64*)section_addr;
     if (!strcmp(section->sectname, sectname)) {
       *ret_section = *section;
@@ -748,7 +747,7 @@ void Debugger::ExtractCodeRanges(void *base_address,
   executable_ranges->clear();
 
   uint64_t load_cmd_addr = (uint64_t)load_commands_buffer;
-  for (int i = 0; i < mach_header.ncmds; ++i) {
+  for (uint32_t i = 0; i < mach_header.ncmds; ++i) {
     load_command *load_cmd = (load_command *)load_cmd_addr;
     if (load_cmd->cmd == LC_SEGMENT_64) {
       segment_command_64 *segment_cmd = (segment_command_64*)load_cmd;
@@ -825,6 +824,7 @@ void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                  VM_FLAGS_FIXED);
 
           if (krt == KERN_SUCCESS && alloc_address && new_range.from) {
+            WARN("waait for it");
             RemoteWrite((void*)new_range.from, new_range.data, range_size);
           } else {
             FATAL("Unable to re-allocate memory after deallocate in ExtractSegmentCodeRanges\n");
@@ -889,7 +889,7 @@ void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max
   *max_address = 0;
 
   uint64_t load_cmd_addr = (uint64_t)load_commands_buffer;
-  for (int i = 0; i < mach_header.ncmds; ++i) {
+  for (uint32_t i = 0; i < mach_header.ncmds; ++i) {
     load_command *load_cmd = (load_command *)load_cmd_addr;
     if (load_cmd->cmd == LC_SEGMENT_64) {
       segment_command_64 *segment_cmd = (segment_command_64*)load_cmd;
@@ -1009,11 +1009,11 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
   RemoteRead((void*)strtab_addr, strtab, symtab_cmd->strsize);
 
   void *symbol_address = NULL;
-  for (int i = 0; i < symtab_cmd->nsyms && !symbol_address; ++i) {
+  for (uint32_t i = 0; i < symtab_cmd->nsyms && !symbol_address; ++i) {
     uint64_t nlist_addr = linkedit_cmd->vmaddr + file_vm_slide
                           + symtab_cmd->symoff - linkedit_cmd->fileoff + i * sizeof(nlist_64);
 
-    nlist_64 symbol = {0};
+    nlist_64 symbol = {};
     RemoteRead((void*)nlist_addr, &symbol, sizeof(nlist_64));
 
     if ((symbol.n_type & N_TYPE) == N_SECT) {
@@ -1096,7 +1096,7 @@ void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_
     RemoteRead((void*)all_image_infos.infoArray, (void*)all_image_info_array, all_image_info_array_size);
 
     char path[PATH_MAX];
-    for (int i = 0; i < all_image_infos.infoArrayCount; ++i) {
+    for (uint32_t i = 0; i < all_image_infos.infoArrayCount; ++i) {
       void *mach_header_addr = (void*)all_image_info_array[i].imageLoadAddress;
       if (mode == 2) { /* dyld_notify_remove_all */
         OnModuleUnloaded(mach_header_addr);
@@ -1170,9 +1170,9 @@ int Debugger::HandleDebuggerBreakpoint() {
 
   RemoteWrite(breakpoint->address, &breakpoint->original_opcode, sizeof(breakpoint->original_opcode));
 #ifdef ARM64
-  SetRegister(PC, GetRegister(PC)); // ARM
+  SetRegister(ARCH_PC, GetRegister(ARCH_PC) - 4); // ARM
 #else
-  SetRegister(RIP, GetRegister(RIP) - 1); // INTEL
+  SetRegister(ARCH_PC, GetRegister(ARCH_PC) - 1); // INTEL
 #endif
 
   if (breakpoint->type & BREAKPOINT_ENTRYPOINT) {
@@ -1221,7 +1221,7 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
     }
 #ifdef ARM64
     if (breakpoint_type & BREAKPOINT_NOTIFICATION) {
-        SetRegister(PC, GetRegister(LR));
+        SetRegister(ARCH_PC, GetRegister(LR));
         return;
     }
 #endif
@@ -1392,7 +1392,7 @@ void Debugger::PrintContext() {
     printf("x20: %16llx x21: %16llx x22: %16llx x23: %16llx\n", state.__x[20], state.__x[21], state.__x[22], state.__x[23]);
     printf("x24: %16llx x25: %16llx x26: %16llx x27: %16llx\n", state.__x[24], state.__x[25], state.__x[26], state.__x[27]);
     printf("x28: %16llx\n", state.__x[28]);
-    printf(" sp: %16llx  fp: %16llx  lr: %16llx\n", state.__sp, state.__fp, state.__lr);
+    printf(" sp: %16llx  fp: %16llx  lr: %16llx cpsr: %8x\n", state.__sp, state.__fp, state.__lr, state.__cpsr);
     printf("stack:\n");
     uint64_t stack[100];
     mach_target->ReadMemory(state.__sp, sizeof(stack), stack);
@@ -1407,7 +1407,7 @@ void Debugger::PrintContext() {
     uint64_t stack[100];
     mach_target->ReadMemory(state.__rsp, sizeof(stack), stack);
 #endif
-    for(int j=0; j<(sizeof(stack)/sizeof(stack[0])); j++) {
+    for(size_t j=0; j<(sizeof(stack)/sizeof(stack[0])); j++) {
       printf("%16llx\n", stack[j]);
     }
   }
@@ -1651,6 +1651,8 @@ char **Debugger::GetEnvp() {
     p++;
   }
 
+  additional_env.push_back("DYLD_SHARED_REGION=private");
+
   int envp_size = environ_size + additional_env.size();
   char **envp = (char**)malloc(sizeof(char*)*(envp_size+1));
   int i;
@@ -1664,7 +1666,7 @@ char **Debugger::GetEnvp() {
     strcpy(envp[i], iter->c_str());
     i++;
   }
-  
+
   envp[envp_size] = NULL;
 
   return envp;

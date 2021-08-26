@@ -18,6 +18,7 @@ limitations under the License.
 #define INSTRUCTION_H
 
 #ifdef ARM64
+#include "third_party/reil/reil/aarch64/decoder.h"
 #else
 extern "C" {
   #include "xed/xed-interface.h"
@@ -40,6 +41,7 @@ struct Instruction {
   InstructionClass iclass;
 
 #ifdef ARM64
+  reil::aarch64::decoder::Instruction instr;
 #else
   xed_decoded_inst_t xedd;
 #endif
@@ -49,6 +51,7 @@ struct Instruction {
     bbend(false),
     iclass(InstructionClass::INVALID),
 #ifdef ARM64
+  instr({})
 #else
       xedd({})
 #endif

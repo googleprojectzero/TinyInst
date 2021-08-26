@@ -80,11 +80,6 @@ protected:
     INST_STOPBB
   };
 
-  struct IndirectBreakpoinInfo {
-    size_t list_head;
-    size_t source_bb;
-  };
-
   std::list<ModuleInfo *> instrumented_modules;
 
   struct CrossModuleLink {
@@ -194,7 +189,7 @@ private:
                            size_t original_target,
                            size_t actual_target,
                            size_t list_head_offset,
-                           size_t edge_start_address,
+                           IndirectBreakpoinInfo& breakpoint_info,
                            bool global_indirect);
   void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
   bool HandleIndirectJMPBreakpoint(void *address);
@@ -220,6 +215,7 @@ private:
 
   // friend class Asssembler;
   friend class X86Assembler;
+  friend class Arm64Assembler;
   friend class ModuleInfo;
   friend class UnwindGenerator;
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
@@ -255,7 +251,7 @@ class ModuleInfo {
 
   // per callsite jumplist breakpoint
   // from breakpoint address to list head offset
-  std::unordered_map<size_t, TinyInst::IndirectBreakpoinInfo> br_indirect_newtarget_list;
+  std::unordered_map<size_t, IndirectBreakpoinInfo> br_indirect_newtarget_list;
 
   size_t jumptable_offset;
   size_t jumptable_address_offset;
@@ -268,6 +264,14 @@ class ModuleInfo {
   // clients can use this to store additional data
   // about the module
   void *client_data;
+};
+
+struct IndirectBreakpoinInfo {
+  size_t list_head;
+  size_t source_bb;
+#ifdef ARM64
+  uint8_t branch_register;
+#endif
 };
 
 #endif // TINYINST_H
