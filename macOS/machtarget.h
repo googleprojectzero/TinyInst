@@ -27,7 +27,6 @@ private:
   task_t task;
   mach_port_t exception_port;
   vm_size_t m_page_size;
-  int pointer_size;
 
   exception_mask_t       saved_masks[EXC_TYPES_COUNT];
   mach_port_t            saved_ports[EXC_TYPES_COUNT];

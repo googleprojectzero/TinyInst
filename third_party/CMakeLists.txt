@@ -13,8 +13,20 @@
 # limitations under the License.
 
 cmake_minimum_required(VERSION "3.1")
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
+if (${ARCHITECTURE} MATCHES arm64)
+project("reil")
+add_library(reil STATIC
+    reil/reil/aarch64/decoder.cpp
+    reil/reil/aarch64/printer.cpp
+    reil/reil/aarch64/decoder.h
+)
+target_include_directories(reil PUBLIC
+  reil/
+)
+
+else()
 project("xed")
 
 find_package (Python3 REQUIRED)
@@ -56,3 +68,4 @@ add_custom_target(
   xed
   DEPENDS ${XED_LIB} ${XED_INTERFACE_H}
 )
+endif()

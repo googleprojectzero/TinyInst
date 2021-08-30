@@ -136,7 +136,7 @@ void UnwindGeneratorMacOS::PopulateEncodingMapFirstLevel(ModuleInfo *module) {
 
   // last entry is a sentinel entry
   // (secondLevelPagesSectionOffset == 0, functionOffset == maximum_mapped_address + 1)
-  for (int entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
+  for (uint32_t entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
     unwind_info_section_header_index_entry *curr_first_level_entry =
       (unwind_info_section_header_index_entry *)curr_first_level_entry_addr;
 
@@ -280,7 +280,7 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
 
   tinyinst_.RestoreRegisters(&it->second.saved_registers);
   
-  tinyinst_.SetRegister(TinyInst::ARCH_PC, it->second.continue_ip);
+  tinyinst_.SetRegister(ARCH_PC, it->second.continue_ip);
   
   // one-time breakpoint
   unwind_data->register_breakpoints.erase(it);
