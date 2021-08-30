@@ -21,6 +21,8 @@ limitations under the License.
 #include <list>
 #include "windows.h"
 
+#include "arch/x86/reg.h"
+
 enum DebuggerStatus {
   DEBUGGER_NONE,
   DEBUGGER_CONTINUE,
@@ -74,26 +76,6 @@ protected:
     READWRITE,
     READEXECUTE,
     READWRITEEXECUTE
-  };
-
-  enum Register {
-    RAX,
-    RCX,
-    RDX,
-    RBX,
-    RSP,
-    RBP,
-    RSI,
-    RDI,
-    R8,
-    R9,
-    R10,
-    R11,
-    R12,
-    R13,
-    R14,
-    R15,
-    RIP
   };
 
   struct AddressRange {
