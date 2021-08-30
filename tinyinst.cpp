@@ -314,7 +314,6 @@ bool TinyInst::HandleIndirectJMPBreakpoint(void *address) {
   bool global_indirect;
 
   size_t list_head_offset;
-  size_t instruction_address = 0;
 
   IndirectBreakpoinInfo bp_info = {};
   if ((size_t)address == module->br_indirect_newtarget_global) {
@@ -454,7 +453,11 @@ TinyInst::IndirectInstrumentation TinyInst::ShouldInstrumentIndirect(
     return indirect_instrumentation_mode;
   } else {
     // default to the most performant mode which is II_GLOBAL
+#ifdef ARM64
+    return II_LOCAL;
+#else
     return II_GLOBAL;
+#endif
   }
 }
 

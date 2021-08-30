@@ -1650,8 +1650,6 @@ char **Debugger::GetEnvp() {
     p++;
   }
 
-  additional_env.push_back("DYLD_SHARED_REGION=private");
-
   int envp_size = environ_size + additional_env.size();
   char **envp = (char**)malloc(sizeof(char*)*(envp_size+1));
   int i;
@@ -1775,7 +1773,7 @@ void Debugger::Init(int argc, char **argv) {
   loop_mode = false;
   disable_aslr = false;
   target_function_defined = false;
-  
+
   target_return_value = 0;
 
   target_module[0] = 0;
@@ -1787,8 +1785,10 @@ void Debugger::Init(int argc, char **argv) {
   
 #ifdef ARM64
   target_end_detection = RETADDR_BREAKPOINT;
+  private_dlyd_cache = true;
 #else
   target_end_detection = RETADDR_STACK_OVERWRITE;
+  private_dlyd_cache = false;
 #endif
 
   dbg_last_status = DEBUGGER_NONE;
@@ -1842,6 +1842,10 @@ void Debugger::Init(int argc, char **argv) {
     if (iter->find("libgmalloc") != std::string::npos) {
       target_end_detection = RETADDR_BREAKPOINT;
     }
+  }
+  private_dlyd_cache = GetBinaryOption("-private_dlyd_cache", argc, argv, private_dlyd_cache);
+  if (private_dlyd_cache) {
+    additional_env.push_back("DYLD_SHARED_REGION=private");
   }
 
   if (target_num_args) {

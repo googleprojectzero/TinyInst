@@ -110,7 +110,6 @@ if(${ARCHITECTURE} MATCHES arm64)
     ${arch_specific_files}
     ${platform_specific_files}
   )
-  add_dependencies(tinyinst reil)
 else()
   add_library(tinyinst STATIC
     ${arch_specific_files}
@@ -125,7 +124,9 @@ target_include_directories(tinyinst PUBLIC
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include
 )
 
-if(NOT (${ARCHITECTURE} MATCHES arm64))
+if((${ARCHITECTURE} MATCHES arm64) AND APPLE)
+  add_dependencies(tinyinst reil)
+else()
   if (WIN32)
     target_link_libraries(tinyinst
                           ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib

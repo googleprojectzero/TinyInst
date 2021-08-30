@@ -45,17 +45,17 @@ struct Instruction {
 #else
   xed_decoded_inst_t xedd;
 #endif
-  Instruction() :
-    address(0),
-    length(0),
-    bbend(false),
-    iclass(InstructionClass::INVALID),
+  Instruction()
+      : address(0),
+        length(0),
+        bbend(false),
+        iclass(InstructionClass::INVALID),
 #ifdef ARM64
-  instr({})
+        instr({})
 #else
-      xedd({})
+        xedd({})
 #endif
-     {}
+  {}
 };
 
 #endif  // INSTRUCTION_H

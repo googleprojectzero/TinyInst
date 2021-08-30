@@ -163,17 +163,17 @@ void Arm64Assembler::FixOffset(ModuleInfo *module, uint32_t jmp_offset,
     case arm64::Opcode::kCbnz:
     case arm64::Opcode::kCbz:
     case arm64::Opcode::kLdrLiteral:
-      encoded_imm = bits(23, 5, relative_offset);
+      encoded_imm = EncodeSignedImmediate(23, 5, relative_offset);
       break;
 
     case arm64::Opcode::kB:
     case arm64::Opcode::kBl:
-      encoded_imm = bits(25, 0, relative_offset);
+      encoded_imm = EncodeSignedImmediate(25, 0, relative_offset);
       break;
 
     case arm64::Opcode::kTbz:
     case arm64::Opcode::kTbnz:
-      encoded_imm = bits(18, 5, relative_offset);
+      encoded_imm = EncodeSignedImmediate(18, 5, relative_offset);
       break;
 
     default:

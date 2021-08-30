@@ -31,6 +31,9 @@ Register reg(arm64::Register r);
 uint32_t bits(uint32_t msb, uint32_t lsb, uint32_t val);
 uint32_t bit(uint32_t lsb);
 
+uint32_t EncodeSignedImmediate(const uint8_t msb, const uint8_t lsb, int32_t value);
+uint32_t EncodeUnsignedImmediate(const uint8_t msb, const uint8_t lsb, uint32_t value);
+
 uint32_t ldr(uint8_t size, Register data_reg, Register base_reg, int32_t offset);
 uint32_t str(uint8_t size, Register data_reg, Register base_reg, int32_t offset);
 uint32_t ldr_lit(Register dst_reg, int64_t rip_offset, size_t size, bool is_signed);

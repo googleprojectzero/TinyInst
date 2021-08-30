@@ -100,6 +100,25 @@ uint32_t bit(uint32_t lsb) {
   return 1 << lsb;
 }
 
+uint32_t EncodeSignedImmediate(const uint8_t msb, const uint8_t lsb, int32_t value) {
+  int32_t min = ((2 << (msb - lsb)) / 2) * -1;
+  int32_t max = ((2 << (msb - lsb)) / 2) - 1;
+  if (value < min || value > max) {
+    FATAL("number must be in range [%d, %d], was %d", min, max, value);
+    return 0; // not reached
+  }
+  return bits(msb, lsb, value);
+}
+
+uint32_t EncodeUnsignedImmediate(const uint8_t msb, const uint8_t lsb, uint32_t value) {
+  int32_t max = ((2 << (msb - lsb))) - 1;
+  if (value > max) {
+    FATAL("number must be in range [0, %d], was %d", max, value);
+    return 0; // not reached
+  }
+  return bits(msb, lsb, value);
+}
+
 uint32_t ldr_lit(Register dst_reg, int64_t rip_offset, size_t size, bool is_signed) {
   uint32_t instr = 0;
 
@@ -108,10 +127,6 @@ uint32_t ldr_lit(Register dst_reg, int64_t rip_offset, size_t size, bool is_sign
   else if(!is_signed && size == 64) opc = 0b01; // LDR (literal) 64-bit
   else if( is_signed && size == 32) opc = 0b10; // LDRSW (literal) 32-bit
   else FATAL("size must be either unsigned 32/64, or signed 32\n");
-
-  if (rip_offset < -1048575 || 1048575 < rip_offset) {
-    FATAL("rip_offset must be between [-1048575, 1048575] is: %lld", rip_offset);
-  }
 
   if (rip_offset & 3) {
     FATAL("rip_offset must be aligned");
@@ -125,7 +140,7 @@ uint32_t ldr_lit(Register dst_reg, int64_t rip_offset, size_t size, bool is_sign
 
   // instr
   instr |= bits(31, 30, opc);
-  instr |= bits(23, 5, rip_offset >> 2);
+  instr |= EncodeSignedImmediate(23, 5, rip_offset >> 2);
   instr |= bits(4, 0, static_cast<uint32_t>(dst_reg));
 
   return instr;
@@ -174,7 +189,7 @@ uint32_t b_cond(const std::string &cond, int32_t off) {
   // for cond branch all further instruction bits are 0
 
   // operands
-  instr |= bits(24, 5, off >> 2);
+  instr |= EncodeSignedImmediate(24, 5, off >> 2);
   instr |= bits(3, 0, static_cast<uint32_t>(cond_bits));
   return instr;
 }
@@ -188,10 +203,6 @@ uint32_t load_store(uint8_t op, uint8_t size, Register data_reg, Register base_r
   else if(size == 16) size_bin = 0b01;
   else if(size ==  8) size_bin = 0b00;
   else FATAL("size must be either 64, 32, 16, or 8\n");
-
-  if(offset < -256 || 255 < offset) {
-    FATAL("offset must be between [-256, 255]");
-  }
 
   // load/store
   instr |= bits(28, 25, 0b0100);
@@ -210,18 +221,13 @@ uint32_t load_store(uint8_t op, uint8_t size, Register data_reg, Register base_r
   // base 
   instr |= bits(9, 5, static_cast<uint32_t>(base_reg));
   // offset
-  instr |= bits(20, 12, offset);
+  instr |= EncodeSignedImmediate(20, 12, offset);
 
   return instr;
 }
 
 uint32_t movzn(Register dst_reg, int32_t imm) {
   uint32_t instr = 0;
-
-  uint32_t abs_imm = std::abs(imm);
-  if(abs_imm > 0xFFFF) {
-    FATAL("imm must be in range abs(imm) must be < 0x10000, was: %x", abs_imm);
-  }
 
   // 64 bit
   instr |= bit(31);
@@ -241,7 +247,7 @@ uint32_t movzn(Register dst_reg, int32_t imm) {
     instr |= bits(30, 29, 0b10);
   }
 
-  instr |= bits(20, 5, std::abs(imm));
+  instr |= EncodeUnsignedImmediate(20, 5, std::abs(imm));
   instr |= bits(4, 0, static_cast<uint32_t>(dst_reg));
   return instr;
 }
@@ -260,10 +266,6 @@ uint32_t str(uint8_t size, Register data_reg, Register base_reg, int32_t offset)
 // TODO: change op to reil instruction constant
 uint32_t add_sub_reg_imm(uint8_t op, Register dst_reg, Register src_reg, uint32_t offset) {
   uint32_t instr = 0;
-
-  if(offset > 0x1000) {
-    FATAL("offset must be [0, 4096]");
-  }
 
   // data process immm
   instr |= bits(28, 25, 0b01000);
@@ -286,7 +288,7 @@ uint32_t add_sub_reg_imm(uint8_t op, Register dst_reg, Register src_reg, uint32_
 
   instr |= bits(4, 0, dst_reg);
   instr |= bits(9, 5, src_reg);
-  instr |= bits(21, 10, offset);
+  instr |= EncodeUnsignedImmediate(21, 10, offset);
 
   return instr;
 }
@@ -336,14 +338,10 @@ uint32_t branch_imm(size_t instr_address, size_t address, bool do_link) {
 
   int32_t offset = (int32_t)(address - instr_address);
 
-  // ± 128mb >> 2 (due to alignment)
-  if (offset < -33554432 || offset > 33554428) {
-    FATAL("Permitted offsets are in the range -33554432 to 33554428.");
-  }
-
   // bl xzr
   instr |= bits(28, 25, 0b1010);
-  instr |= bits(25,  0, offset>>2);
+  instr |= EncodeSignedImmediate(25,  0, offset>>2);
+
   if(do_link) {
     instr |= bit(31);
   }
@@ -387,7 +385,7 @@ uint32_t movz_imm(Register dst, int32_t imm) {
   // kMovz
   instr |= bits(30, 29, 0b10);
 
-  instr |= bits(20, 5, imm);
+  instr |= EncodeUnsignedImmediate(20, 5, imm);
   instr |= bits(4, 0, dst);
   return instr;
 }

@@ -225,6 +225,14 @@ private:
 #endif
 };
 
+struct IndirectBreakpoinInfo {
+  size_t list_head;
+  size_t source_bb;
+#ifdef ARM64
+  uint8_t branch_register;
+#endif
+};
+
 class ModuleInfo {
  public:
   ModuleInfo();
@@ -264,14 +272,6 @@ class ModuleInfo {
   // clients can use this to store additional data
   // about the module
   void *client_data;
-};
-
-struct IndirectBreakpoinInfo {
-  size_t list_head;
-  size_t source_bb;
-#ifdef ARM64
-  uint8_t branch_register;
-#endif
 };
 
 #endif // TINYINST_H
