@@ -41,6 +41,8 @@ TinyInst assumes all instrumented modules are well-behaved in the sense that
 OR/AND (depending on the settings)
 - No data is ever stored before the top of the stack (on addresses lower than pointed to by ESP/RSP). This condition can be relaxed into "no data before (ESP/RSP - arbitrary_offset)" using the `-stack_offset` flag.
 
+TinyInst also requires DEP/NX to be enabled for the target process. If that is not already the case, you can use the `-force_dep` flag to force it on. However, in the unlikely case that the target genuinely needs DEP off to function properly, forcing it on might cause it to misbehave.
+
 ### What is the performance overhead?
 
 According to early measurements on image decoding, on a well-behaving 64-bit target with default TinyInst settings, the performance overhead was around 15% without a client and about 20% with the example coverage-collecting client. Note that this does not include the timeout introduced by initially instrumented the modules. See performance tips below for more details.
@@ -199,6 +201,8 @@ TinyInst allows user to define a target method. If a target method is defined, n
 ### Other
 
 `-target_env key=value` - [currently macOS only] specifies an additional environment variable to pass to the target process. Multiple `-target_env` options can be specified to pass multiple environment variables.
+
+`-force_dep` - [Windows only] Force-enables DEP for the target process.
 
 ## Coverage module
 
