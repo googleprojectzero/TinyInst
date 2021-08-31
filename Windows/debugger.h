@@ -216,6 +216,8 @@ private:
   CONTEXT lcContext;
   bool have_thread_context;
   size_t allocation_granularity;
+
+  bool force_dep;
 };
 
 #endif // DEBUGGER_H

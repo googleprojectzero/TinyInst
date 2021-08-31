@@ -1396,6 +1396,13 @@ void Debugger::StartProcess(char *cmd) {
   dbg_continue_needed = false;
 
   STARTUPINFOA si;
+  STARTUPINFOEXA si_ex;
+  LPSTARTUPINFOA si_ptr;
+  LPSTARTUPINFOA si_basic_ptr;
+  LPPROC_THREAD_ATTRIBUTE_LIST attr_list_buf = NULL;
+
+  DWORD creation_flags = DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS;
+
   PROCESS_INFORMATION pi;
   HANDLE hJob = NULL;
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_limit;
@@ -1418,16 +1425,52 @@ void Debugger::StartProcess(char *cmd) {
   }
   BOOL inherit_handles = TRUE;
 
-  ZeroMemory(&si, sizeof(si));
-  si.cb = sizeof(si);
-  ZeroMemory(&pi, sizeof(pi));
+  if (force_dep) {
+    ZeroMemory(&si_ex, sizeof(si_ex));
+    si_ex.StartupInfo.cb = sizeof(si_ex);
+
+    creation_flags |= EXTENDED_STARTUPINFO_PRESENT;
+
+    SIZE_T attr_size = 0;
+    InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
+    if (attr_size == 0) {
+      FATAL("Error getting attribute list size");
+    }
+
+    attr_list_buf = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attr_size);
+    if (!InitializeProcThreadAttributeList(attr_list_buf, 1, 0, &attr_size)) {
+      FATAL("Error in InitializeProcThreadAttributeList");
+    }
+
+    DWORD flags = PROCESS_CREATION_MITIGATION_POLICY_DEP_ENABLE;
+    size_t flags_size = sizeof(flags);
+
+    if (!UpdateProcThreadAttribute(attr_list_buf,
+      0, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+      &flags, flags_size, NULL, NULL))
+    {
+      FATAL("Error in UpdateProcThreadAttribute");
+    }
+
+    si_ex.lpAttributeList = attr_list_buf;
+
+    si_ptr = (LPSTARTUPINFOA)&si_ex;
+    si_basic_ptr = &si_ex.StartupInfo;
+  } else {
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si_ptr = &si;
+    si_basic_ptr = &si;
+  }
 
   if (sinkhole_stds) {
-    si.hStdOutput = si.hStdError = devnul_handle;
-    si.dwFlags |= STARTF_USESTDHANDLES;
+    si_basic_ptr->hStdOutput = si_basic_ptr->hStdError = devnul_handle;
+    si_basic_ptr->dwFlags |= STARTF_USESTDHANDLES;
   } else {
     inherit_handles = FALSE;
   }
+
+  ZeroMemory(&pi, sizeof(pi));
 
   if (mem_limit || cpu_aff) {
     hJob = CreateJobObject(NULL, NULL);
@@ -1461,13 +1504,18 @@ void Debugger::StartProcess(char *cmd) {
                       NULL,
                       NULL,
                       inherit_handles,
-                      DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS,
+                      creation_flags,
                       NULL,
                       NULL,
-                      &si,
+                      si_ptr,
                       &pi))
   {
     FATAL("CreateProcess failed, GLE=%d.\n", GetLastError());
+  }
+
+  if (attr_list_buf) {
+    DeleteProcThreadAttributeList(attr_list_buf);
+    free(attr_list_buf);
   }
 
   child_handle = pi.hProcess;
@@ -1676,6 +1724,8 @@ void Debugger::Init(int argc, char **argv) {
     else
       FATAL("Unknown calling convention");
   }
+
+  force_dep = GetBinaryOption("-force_dep", argc, argv, false);
 
   // check if we are running in persistence mode
   if (target_module[0] || target_offset || target_method[0]) {
