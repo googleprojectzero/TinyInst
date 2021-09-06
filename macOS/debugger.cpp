@@ -1024,10 +1024,10 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
     nlist_64 curr_symbol = *(nlist_64*)curr_symbol_address;
     if ((curr_symbol.n_type & N_TYPE) == N_SECT) {
       char *curr_sym_name = NULL;
+      std::string curr_sym_name_string;
       if (!in_shared_cache) {
         curr_sym_name = strtab + curr_symbol.n_un.n_strx;
       } else {
-        std::string curr_sym_name_string;
         mach_target->ReadCString(strtab_addr + curr_symbol.n_un.n_strx, curr_sym_name_string);
         curr_sym_name = (char*)curr_sym_name_string.c_str();
       }
