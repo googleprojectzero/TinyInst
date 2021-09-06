@@ -137,7 +137,9 @@ protected:
 
   int32_t sp_offset;
   Assembler* assembler_;
+
   UnwindGenerator* unwind_generator;
+  virtual void OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address);
 
 private:
   bool HandleBreakpoint(void *address);
@@ -191,7 +193,6 @@ private:
                            size_t list_head_offset,
                            IndirectBreakpoinInfo& breakpoint_info,
                            bool global_indirect);
-  void PushReturnAddress(ModuleInfo *module, uint64_t return_address);
   bool HandleIndirectJMPBreakpoint(void *address);
 
   IndirectInstrumentation indirect_instrumentation_mode;

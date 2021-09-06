@@ -17,6 +17,7 @@ limitations under the License.
 #include <stdio.h>
 #include <cstdlib>
 #include <string.h>
+#include <string>
 
 #include <mach/mach_vm.h>
 #include <mach-o/dyld_images.h>
@@ -346,6 +347,25 @@ void MachTarget::ReadCString(uint64_t address, size_t max_size, void *string) {
 
     string = (void*)((uint64_t)string + cur_size);
     max_size -= cur_size;
+    address += cur_size;
+  }
+}
+
+void MachTarget::ReadCString(uint64_t address, std::string &string) {
+  size_t page_size = PageSize();
+  char *buf = (char *)malloc(page_size);
+
+  while (1) {
+    size_t cur_size = MaxBytesLeftInPage(address, page_size);
+    ReadMemory(address, cur_size, buf);
+    if (memchr((void*)buf, '\0', cur_size)) {
+      string.append(buf);
+      free(buf);
+      return;
+    } else {
+      string.append(buf, cur_size);
+    }
+
     address += cur_size;
   }
 }

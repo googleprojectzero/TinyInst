@@ -265,7 +265,7 @@ void TinyInst::FixOffsetOrEnqueue(
   }
 }
 
-// various breapoints
+// various breakpoints
 bool TinyInst::HandleBreakpoint(void *address) {
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return false;
@@ -770,6 +770,10 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   SetRegister(ARCH_PC, translated_address);
 
   return true;
+}
+
+void TinyInst::OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address) {
+  unwind_generator->OnReturnAddress(module, original_address, translated_address);
 }
 
 void TinyInst::OnModuleInstrumented(ModuleInfo* module) {

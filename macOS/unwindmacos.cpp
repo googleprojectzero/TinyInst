@@ -20,13 +20,74 @@ limitations under the License.
 #include <mach-o/dyld_images.h>
 #include <mach-o/nlist.h>
 
+#include <third_party/llvm/libunwind/dwarf2.h>
+#include <third_party/llvm/libunwind/CompactUnwinder.hpp>
+
+constexpr const unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
+
+void UnwindDataMacOS::LookupEncoding(size_t original_address) {
+  if (encoding_map.empty()) {
+    last_lookup = LastLookup();
+    return;
+  }
+
+  if (last_lookup.IsEncodingMiss(original_address)) {
+    last_lookup = LastLookup();
+    auto it = encoding_map.upper_bound(original_address);
+    if (it == encoding_map.begin()) {
+      last_lookup.SetEncoding(0, 0, it->first - 1);
+    } else if (it == encoding_map.end()) { // Sentinel entry
+      last_lookup.SetEncoding(0, prev(it)->first, -1);
+    } else {
+      last_lookup.SetEncoding(prev(it)->second, prev(it)->first, it->first - 1);
+    }
+  }
+}
+
+void UnwindDataMacOS::LookupLSDA(size_t original_address) {
+  if (last_lookup.IsLsdaMiss(original_address)) {
+    if (!lsda_map.empty() && last_lookup.encoding & UNWIND_HAS_LSDA) {
+      auto it = lsda_map.upper_bound(original_address);
+      if (it == lsda_map.begin()) {
+        last_lookup.SetLsda(-1, 0, it->first - 1);
+      } else if (it == lsda_map.end()) { // Sentinel entry
+        last_lookup.SetLsda(-1, prev(it)->first, -1);
+      } else {
+        last_lookup.SetLsda(prev(it)->second, prev(it)->first, it->first - 1);
+      }
+    } else {
+      last_lookup.SetLsda(0, last_lookup.encoding_min_address, last_lookup.encoding_max_address);
+    }
+  }
+}
+
+void UnwindDataMacOS::AddMetadata(size_t original_address, size_t translated_address) {
+  LookupEncoding(original_address);
+  if (!last_lookup.IsEncodingValid()) {
+    return;
+  }
+
+  LookupLSDA(original_address);
+  if (!last_lookup.IsLsdaValid()) {
+    return;
+  }
+
+  if (metadata_list.empty()
+      || metadata_list.back().encoding != last_lookup.encoding
+      || metadata_list.back().lsda != last_lookup.lsda) {
+    metadata_list.push_back(Metadata(last_lookup.encoding, last_lookup.lsda,
+                                     translated_address, translated_address));
+  } else {
+    metadata_list.back().translated_max_address = translated_address;
+  }
+}
+
 UnwindDataMacOS::UnwindDataMacOS() {
   unwind_section_address = NULL;
   unwind_section_size = 0;
   unwind_section_buffer = NULL;
   unwind_section_header = NULL;
-  last_encoding_lookup = LastEncodingLookup();
-  have_data_to_register = false;
+  last_lookup = LastLookup();
 }
 
 UnwindDataMacOS::~UnwindDataMacOS() {
@@ -34,33 +95,39 @@ UnwindDataMacOS::~UnwindDataMacOS() {
   unwind_section_buffer = NULL;
 }
 
-void UnwindDataMacOS::AddEncoding(size_t original_address, size_t translated_address) {
-  if (encoding_map.empty()) {
-    return;
+void UnwindGeneratorMacOS::CheckUnwindBufferBounds(ModuleInfo *module, const char *array_description,
+                                                   size_t start_address, size_t size) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  if (start_address < (size_t)unwind_data->unwind_section_buffer
+      || (size_t)unwind_data->unwind_section_buffer + unwind_data->unwind_section_size < start_address + size) {
+    FATAL("%s is located outside the Unwind Section buffer\n", array_description);
+  }
+}
+
+void UnwindGeneratorMacOS::SanityCheckUnwindHeader(ModuleInfo *module) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
+
+  if (unwind_section_header->version != UNWIND_SECTION_VERSION) {
+    FATAL("Unexpected version (%u) in Unwind Section Header",
+          unwind_data->unwind_section_header->version);
   }
 
-  if (original_address < last_encoding_lookup.original_min_address
-      || last_encoding_lookup.original_max_address <= original_address) {
-    auto it = encoding_map.upper_bound(original_address);
-    if (it == encoding_map.begin()) {
-      last_encoding_lookup = LastEncodingLookup(0, 0, it->first - 1);
-    } else if (it == encoding_map.end()) { // Sentinel entry
-      last_encoding_lookup = LastEncodingLookup(0, prev(it)->first, -1);
-    } else {
-      last_encoding_lookup = LastEncodingLookup(prev(it)->second, prev(it)->first, it->first - 1);
-    }
-  }
+  size_t common_encodings_array_addr = (size_t)unwind_data->unwind_section_buffer
+                                       + unwind_section_header->commonEncodingsArraySectionOffset;
+  CheckUnwindBufferBounds(module, "Common encodings array", common_encodings_array_addr,
+                          unwind_section_header->commonEncodingsArrayCount * sizeof(compact_unwind_encoding_t));
 
-  if (!last_encoding_lookup.IsValid()) {
-    return;
-  }
+  size_t personality_array_addr = (size_t)unwind_data->unwind_section_buffer
+                                  + unwind_section_header->personalityArraySectionOffset;
+  CheckUnwindBufferBounds(module, "Personality array", personality_array_addr,
+                          unwind_section_header->personalityArrayCount * sizeof(uint32_t));
 
-  if (metadata_list.empty() || metadata_list.back().encoding != last_encoding_lookup.encoding) {
-    metadata_list.push_back(Metadata(last_encoding_lookup.encoding,
-                                     translated_address, translated_address));
-  } else {
-    metadata_list.back().translated_max_address = translated_address;
-  }
+  size_t first_level_array_addr = (size_t)unwind_data->unwind_section_buffer
+                                  + unwind_section_header->indexSectionOffset;
+  CheckUnwindBufferBounds(module, "First-level indexSection array", first_level_array_addr,
+                          unwind_section_header->indexCount * sizeof(unwind_info_section_header_index_entry));
 }
 
 void UnwindGeneratorMacOS::OnModuleInstrumented(ModuleInfo* module) {
@@ -80,11 +147,6 @@ void UnwindGeneratorMacOS::OnModuleInstrumented(ModuleInfo* module) {
 
     unwind_data->unwind_section_header =
       (unwind_info_section_header *)unwind_data->unwind_section_buffer;
-
-    if (unwind_data->unwind_section_header->version != UNWIND_SECTION_VERSION) {
-      FATAL("Unexpected version (%u) in Unwind Section Header",
-            unwind_data->unwind_section_header->version);
-    }
   } else {
     FATAL("Unable to find __unwind_info section in module %s (0x%lx)\n"
           "Aborting since there is no support for .eh_frame DWARF entries at the moment.\n",
@@ -92,26 +154,30 @@ void UnwindGeneratorMacOS::OnModuleInstrumented(ModuleInfo* module) {
   }
 
   module->unwind_data = unwind_data;
-  PopulateEncodingMapFirstLevel(module);
+  SanityCheckUnwindHeader(module);
+
+  WriteCIEs(module);
+  ExtractFirstLevel(module);
 }
 
 void UnwindGeneratorMacOS::OnBasicBlockStart(ModuleInfo* module,
                                              size_t original_address,
                                              size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->AddEncoding(original_address, translated_address);
+  ((UnwindDataMacOS *)module->unwind_data)->AddMetadata(original_address, translated_address);
 }
 
 void UnwindGeneratorMacOS::OnInstruction(ModuleInfo* module,
                                          size_t original_address,
                                          size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->AddEncoding(original_address, translated_address);
+  ((UnwindDataMacOS *)module->unwind_data)->AddMetadata(original_address, translated_address);
 }
 
 void UnwindGeneratorMacOS::OnBasicBlockEnd(ModuleInfo* module,
                                            size_t original_address,
                                            size_t translated_address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  if (unwind_data->last_encoding_lookup.IsValid()) {
+  if (!unwind_data->metadata_list.empty()
+      && unwind_data->last_lookup.IsEncodingValid() && unwind_data->last_lookup.IsLsdaValid()) {
     unwind_data->metadata_list.back().translated_max_address = translated_address - 1;
   }
 }
@@ -121,80 +187,167 @@ void UnwindGeneratorMacOS::OnModuleUninstrumented(ModuleInfo *module) {
   module->unwind_data = NULL;
 }
 
-void UnwindGeneratorMacOS::PopulateEncodingMapFirstLevel(ModuleInfo *module) {
+void UnwindGeneratorMacOS::OnReturnAddress(ModuleInfo *module,
+                                           size_t original_address,
+                                           size_t translated_address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  unwind_data->return_addresses[translated_address] = original_address;
+}
 
+size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
+                                      const char *augmentation,
+                                      size_t personality_addr) {
+  personality_addr = GetCustomPersonality(module, personality_addr);
+  
+  ByteStream cie;
+  cie.PutBytes<uint32_t>(0);          // CIE id, must be zero
+  cie.PutBytes<uint8_t>(3);           // version
+  cie.PutString(augmentation);        // augmentation string
+  cie.PutEncodedULEB128Bytes(1);      // code aligment factor, ULEB128 encoded
+  cie.PutEncodedSLEB128Bytes(1);      // data aligment factor, SLEB128 encoded
+  cie.PutEncodedULEB128Bytes(16);     // return address register, ULEB128 encoded
+
+  cie.PutEncodedULEB128Bytes(10);             // augmentation length
+  cie.PutBytes<uint8_t>(0);                   // personality encoding
+  cie.PutBytes<uint64_t>(personality_addr);   // personality address
+  cie.PutBytes<uint8_t>(0);                   // lsda encoding
+
+  cie.PutBytes<uint8_t>(DW_CFA_def_cfa);
+  cie.PutEncodedULEB128Bytes(7);
+  cie.PutEncodedULEB128Bytes(8);
+
+  cie.PutBytes<uint8_t>(DW_CFA_offset | 16);
+  cie.PutEncodedULEB128Bytes(-8);
+
+  cie.PutBytes<uint32_t>(cie.size(), true); // CIE length
+
+  size_t cie_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+  tinyinst_.WriteCode(module, cie.data(), cie.size());
+
+  return cie_address;
+}
+
+void UnwindGeneratorMacOS::WriteCIEs(ModuleInfo *module) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
   unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
 
-  if (unwind_section_header->indexSectionOffset
-      + unwind_section_header->indexCount
-        * sizeof(unwind_info_section_header_index_entry) > unwind_data->unwind_section_size) {
-    FATAL("The first-level indexSection array is located outside the Unwind Section buffer\n");
+  size_t curr_personality_entry_addr = (size_t)unwind_data->unwind_section_buffer
+                                       + unwind_section_header->personalityArraySectionOffset;
+
+  size_t code_size_before = module->instrumented_code_allocated;
+
+  unwind_data->cie_addresses.push_back(WriteCIE(module, "zPL", 0));
+  for (int curr_cnt = 0; curr_cnt < unwind_section_header->personalityArrayCount; ++curr_cnt) {
+    uint32_t personality_offset = *(uint32_t*)curr_personality_entry_addr;
+    size_t personality_address;
+    tinyinst_.RemoteRead((void*)((size_t)module->module_header + personality_offset),
+                         &personality_address,
+                         sizeof(size_t));
+    unwind_data->cie_addresses.push_back(WriteCIE(module, "zPL", personality_address));
+
+    curr_personality_entry_addr += sizeof(uint32_t);
   }
+
+  // compute how much data we wrote and commit it all to the target process
+  size_t code_size_after = module->instrumented_code_allocated;
+  tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
+}
+
+
+void UnwindGeneratorMacOS::ExtractFirstLevel(ModuleInfo *module) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
+
   size_t curr_first_level_entry_addr = (size_t)unwind_data->unwind_section_buffer
                                        + unwind_section_header->indexSectionOffset;
 
   // last entry is a sentinel entry
-  // (secondLevelPagesSectionOffset == 0, functionOffset == maximum_mapped_address + 1)
-  for (uint32_t entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
+  // (secondLevelPagesSectionOffset == 0,
+  //  lsdaIndexArraySectionOffset == end of the previous lsda array,
+  //  functionOffset == maximum_mapped_address + 1)
+  for (int entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
     unwind_info_section_header_index_entry *curr_first_level_entry =
       (unwind_info_section_header_index_entry *)curr_first_level_entry_addr;
 
     if (entry_cnt + 1 == unwind_section_header->indexCount) { // Sentinel entry
       unwind_data->encoding_map[(size_t)module->module_header
                                 + curr_first_level_entry->functionOffset] = 0;
+      unwind_data->lsda_map[(size_t)module->module_header
+                            + curr_first_level_entry->functionOffset] = 0;
     } else {
-      PopulateEncodingMapSecondLevel(module, curr_first_level_entry);
+      ExtractEncodingsSecondLevel(module, curr_first_level_entry);
+      ExtractLSDAsSecondLevel(module, curr_first_level_entry);
     }
 
     curr_first_level_entry_addr += sizeof(unwind_info_section_header_index_entry);
   }
 }
 
-
-void UnwindGeneratorMacOS::PopulateEncodingMapSecondLevel(ModuleInfo *module,
-                                                          unwind_info_section_header_index_entry *first_level_entry) {
+void UnwindGeneratorMacOS::ExtractEncodingsSecondLevel(ModuleInfo *module,
+                                                       unwind_info_section_header_index_entry *first_level_entry) {
   if (first_level_entry->secondLevelPagesSectionOffset == 0) {
     return;
   }
 
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  if (first_level_entry->secondLevelPagesSectionOffset
-      + sizeof(uint32_t) > unwind_data->unwind_section_size) {
-    FATAL("The second_level_page_header.kind field is located outside the Unwind Section buffer\n");
-  }
   size_t second_level_page_addr = (size_t)unwind_data->unwind_section_buffer
                                   + first_level_entry->secondLevelPagesSectionOffset;
+  CheckUnwindBufferBounds(module, "second_level_page_header.kind", second_level_page_addr, sizeof(uint32_t));
 
   uint32_t unwind_second_level_type = *(uint32_t*)second_level_page_addr;
   if (unwind_second_level_type == UNWIND_SECOND_LEVEL_COMPRESSED) {
-    PopulateEncodingMapCompressed(module, first_level_entry, second_level_page_addr);
+    ExtractEncodingsCompressed(module, first_level_entry, second_level_page_addr);
   } else if (unwind_second_level_type == UNWIND_SECOND_LEVEL_REGULAR) {
-    PopulateEncodingMapRegular(module, first_level_entry, second_level_page_addr);
+    ExtractEncodingsRegular(module, first_level_entry, second_level_page_addr);
   }
 }
 
 
-void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
-                                                         unwind_info_section_header_index_entry *first_level_entry,
-                                                         size_t second_level_page_addr) {
+compact_unwind_encoding_t UnwindGeneratorMacOS::GetCompactEncoding(ModuleInfo *module,
+                                                                   size_t second_level_page_addr,
+                                                                   uint32_t curr_entry_encoding_index) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-
-  if (first_level_entry->secondLevelPagesSectionOffset
-      + sizeof(unwind_info_compressed_second_level_page_header) > unwind_data->unwind_section_size) {
-    FATAL("The compressed second_level_page_header is located outside the Unwind Section buffer\n");
-  }
+  unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
   unwind_info_compressed_second_level_page_header *second_level_header =
     (unwind_info_compressed_second_level_page_header *)second_level_page_addr;
 
-  if (first_level_entry->secondLevelPagesSectionOffset
-      + second_level_header->entryPageOffset
-      + second_level_header->entryCount * sizeof(uint32_t) > unwind_data->unwind_section_size) {
-    FATAL("The compressed second-level array is located outside the Unwind Section buffer\n");
+  if (curr_entry_encoding_index < unwind_section_header->commonEncodingsArrayCount) {
+    return *(compact_unwind_encoding_t*)
+           ((size_t)unwind_data->unwind_section_buffer
+            + unwind_section_header->commonEncodingsArraySectionOffset
+            + curr_entry_encoding_index * sizeof(compact_unwind_encoding_t));
+  } else if (curr_entry_encoding_index - unwind_section_header->commonEncodingsArrayCount
+             < second_level_header->encodingsCount) {
+    return *(compact_unwind_encoding_t*)
+           (second_level_page_addr
+            + second_level_header->encodingsPageOffset
+            + (curr_entry_encoding_index - unwind_section_header->commonEncodingsArrayCount)
+                * sizeof(compact_unwind_encoding_t));
   }
 
+  FATAL("The compressed encoding index is invalid\n");
+}
+
+void UnwindGeneratorMacOS::ExtractEncodingsCompressed(ModuleInfo *module,
+                                                      unwind_info_section_header_index_entry *first_level_entry,
+                                                      size_t second_level_page_addr) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  CheckUnwindBufferBounds(module, "Compressed second_level_page_header", second_level_page_addr,
+                          sizeof(unwind_info_compressed_second_level_page_header));
+
+  unwind_info_compressed_second_level_page_header *second_level_header =
+    (unwind_info_compressed_second_level_page_header *)second_level_page_addr;
+
+  CheckUnwindBufferBounds(module, "Second-level local encodings array",
+                          second_level_page_addr + second_level_header->encodingsPageOffset,
+                          second_level_header->encodingsCount * sizeof(compact_unwind_encoding_t));
+
   size_t curr_second_level_entry_addr = second_level_page_addr + second_level_header->entryPageOffset;
+  CheckUnwindBufferBounds(module, "Compressed second-level array", curr_second_level_entry_addr,
+                          second_level_header->entryCount * sizeof(uint32_t));
+
   for (int curr_cnt = 0; curr_cnt < second_level_header->entryCount; ++curr_cnt) {
     uint32_t curr_second_level_entry = *(uint32_t*)curr_second_level_entry_addr;
     uint32_t curr_entry_encoding_index =
@@ -202,21 +355,9 @@ void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
     uint32_t curr_entry_func_offset =
       UNWIND_INFO_COMPRESSED_ENTRY_FUNC_OFFSET(curr_second_level_entry);
 
-    compact_unwind_encoding_t encoding;
-    unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
-    if (curr_entry_encoding_index < unwind_section_header->commonEncodingsArrayCount) {
-      encoding =
-        *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
-                                      + unwind_section_header->commonEncodingsArraySectionOffset
-                                      + curr_entry_encoding_index * sizeof(compact_unwind_encoding_t));
-    } else {
-      encoding =
-        *(compact_unwind_encoding_t*)((size_t)unwind_data->unwind_section_buffer
-                                      + second_level_header->encodingsPageOffset
-                                      + (curr_entry_encoding_index
-                                         - unwind_section_header->commonEncodingsArrayCount)
-                                        * sizeof(compact_unwind_encoding_t));
-    }
+    compact_unwind_encoding_t encoding = GetCompactEncoding(module,
+                                                            second_level_page_addr,
+                                                            curr_entry_encoding_index);
 
     unwind_data->encoding_map[(uint64_t)module->module_header
                               + first_level_entry->functionOffset
@@ -226,57 +367,98 @@ void UnwindGeneratorMacOS::PopulateEncodingMapCompressed(ModuleInfo *module,
   }
 }
 
-void UnwindGeneratorMacOS::PopulateEncodingMapRegular(ModuleInfo *module,
-                                                      unwind_info_section_header_index_entry *first_level_entry,
-                                                      size_t second_level_page_addr) {
+void UnwindGeneratorMacOS::ExtractEncodingsRegular(ModuleInfo *module,
+                                                   unwind_info_section_header_index_entry *first_level_entry,
+                                                   size_t second_level_page_addr) {
+  WARN("ExtractEncodingsRegular() function was never tested");
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  if (first_level_entry->secondLevelPagesSectionOffset
-      + sizeof(unwind_info_regular_second_level_page_header) > unwind_data->unwind_section_size) {
-    FATAL("The regular second_level_page_header is located outside the Unwind Section buffer\n");
-  }
+  CheckUnwindBufferBounds(module, "Regular second_level_page_header", second_level_page_addr,
+                          sizeof(unwind_info_regular_second_level_page_header));
+
   unwind_info_regular_second_level_page_header *second_level_header =
     (unwind_info_regular_second_level_page_header *)second_level_page_addr;
 
-  if (first_level_entry->secondLevelPagesSectionOffset
-      + second_level_header->entryPageOffset
-      + second_level_header->entryCount
-        * sizeof(unwind_info_regular_second_level_entry) > unwind_data->unwind_section_size) {
-    FATAL("The regular second-level array is located outside the Unwind Section buffer\n");
-  }
-
   size_t curr_second_level_entry_addr = second_level_page_addr + second_level_header->entryPageOffset;
+  CheckUnwindBufferBounds(module, "Regular second-level array", curr_second_level_entry_addr,
+                          second_level_header->entryCount * sizeof(unwind_info_regular_second_level_entry));
+
   for (int curr_cnt = 0; curr_cnt < second_level_header->entryCount; ++curr_cnt) {
     unwind_info_regular_second_level_entry *curr_second_level_entry =
       (unwind_info_regular_second_level_entry *)curr_second_level_entry_addr;
 
-    unwind_data->encoding_map[(uint64_t)module->module_header
+    unwind_data->encoding_map[(size_t)module->module_header
                               + curr_second_level_entry->functionOffset] = curr_second_level_entry->encoding;
 
     curr_second_level_entry_addr += sizeof(unwind_info_regular_second_level_entry);
   }
 }
 
+void UnwindGeneratorMacOS::ExtractLSDAsSecondLevel(ModuleInfo *module,
+                                                   unwind_info_section_header_index_entry *first_level_entry) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  size_t lsda_array_size = (first_level_entry + 1)->lsdaIndexArraySectionOffset
+                           - first_level_entry->lsdaIndexArraySectionOffset;
+  size_t lsda_array_count =
+    lsda_array_size / sizeof(unwind_info_section_header_lsda_index_entry);
+
+  size_t curr_lsda_entry_addr =
+    (size_t)unwind_data->unwind_section_buffer + first_level_entry->lsdaIndexArraySectionOffset;
+
+  CheckUnwindBufferBounds(module, "LSDA array", curr_lsda_entry_addr, lsda_array_size);
+
+  for (size_t curr_cnt = 0; curr_cnt < lsda_array_count; ++curr_cnt) {
+    unwind_info_section_header_lsda_index_entry *curr_lsda_entry =
+      (unwind_info_section_header_lsda_index_entry *)curr_lsda_entry_addr;
+
+    unwind_data->lsda_map[(size_t)module->module_header
+                          + curr_lsda_entry->functionOffset] = (size_t)module->module_header
+                                                               + curr_lsda_entry->lsdaOffset;
+
+    curr_lsda_entry_addr += sizeof(unwind_info_section_header_lsda_index_entry);
+  }
+}
+
 void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
-  if(strcmp(module_name, "libunwind.dylib")) return;
-  
-  register_frame_addr = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"___register_frame");
-  
-  if(!register_frame_addr) {
-    FATAL("Error locating __register_frame\n");
+  if(strcmp(module_name, "libunwind.dylib") == 0) {
+    register_frame_addr = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"___register_frame");
+    if(!register_frame_addr) {
+      FATAL("Error locating __register_frame\n");
+    }
+
+    unwind_getip = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__Unwind_GetIP");
+    if(!unwind_getip) {
+      FATAL("Error locating __Unwind_GetIP\n");
+    }
+
+    unwind_setip = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__Unwind_SetIP");
+    if(!unwind_setip) {
+      FATAL("Error locating __Unwind_SetIP\n");
+    }
   }
 }
 
 bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
+  auto it_personality = unwind_data->personality_breakpoints.find((size_t)address);
+  if (it_personality != unwind_data->personality_breakpoints.end()) {
+    size_t ip = tinyinst_.GetRegister(RAX);
+
+    auto it = unwind_data->return_addresses.lower_bound(ip);
+    if (it != unwind_data->return_addresses.end() && it->first == ip) {
+      ip = it->second - 1;
+      tinyinst_.SetRegister(RAX, ip);
+    }
+
+    return true;
+  }
+
   auto it = unwind_data->register_breakpoints.find((size_t)address);
-  
   if(it == unwind_data->register_breakpoints.end()) {
     return false;
   }
-
-  // printf("registration completed\n");
 
   tinyinst_.RestoreRegisters(&it->second.saved_registers);
   
@@ -288,64 +470,110 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   return true;
 }
 
-// the idea is that this produces a minimal valid FDE
-// but since __register_frame doesn't return a value
-// it's not possible to test if the registration actually succeeds
-size_t UnwindGeneratorMacOS::WriteTestFde(ModuleInfo *module) {
-  // need to write a CIE first
-  // see CFI_Parser<A>::parseCIE
-  unsigned char test_cie[] =
-  {
-    0x0d, 0x00, 0x00, 0x00, // CIE length
-    0x00, 0x00, 0x00, 0x00, // CIE id, must be zero
-    0x03, // version
-    0x00, // empty augmentation string
-    0x00, // code aligment factor, LEB128 encoded
-    0x00, // data aligment factor, LEB128 encoded
-    0x00 // return address register, LEB128 encoded
-  };
-  tinyinst_.WriteCode(module, test_cie, sizeof(test_cie));
-  
-  size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-  
-  // see CFI_Parser<A>::decodeFDE
-  unsigned char test_fde[] = {
-    0x18, 0x00, 0x00, 0x00, // FDE length
-    0x11, 0x00, 0x00, 0x00, // offset to CIE from current location, this is sizeof(test_cie) + 4(current offset into fde)
-    0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // PC start, 0x1000 here
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // PC range, 0 here
-  };
-  tinyinst_.WriteCode(module, test_cie, sizeof(test_cie));
+void UnwindGeneratorMacOS::WriteDWARFInstructionsRBP(ByteStream *fde, uint32_t encoding) {
+  fde->PutBytes<uint8_t>(DW_CFA_advance_loc | 1);
 
+  fde->PutBytes<uint8_t>(DW_CFA_def_cfa_offset);
+  fde->PutEncodedULEB128Bytes(16);
+
+  fde->PutBytes<uint8_t>(DW_CFA_offset | 6);
+  fde->PutEncodedULEB128Bytes(-16);
+
+  fde->PutBytes<uint8_t>(DW_CFA_advance_loc | 3);
+
+  fde->PutBytes<uint8_t>(DW_CFA_def_cfa_register);
+  fde->PutEncodedULEB128Bytes(6);
+
+  uint32_t saved_registers_cfa_offset = -16 - 8 * EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_OFFSET);
+  uint32_t saved_registers_locations = EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_REGISTERS);
+
+  for (int i = 0; i < 5; i++) {
+    switch (saved_registers_locations & 0x7) {
+      case UNWIND_X86_64_REG_NONE:
+        break;
+      case UNWIND_X86_64_REG_RBX:
+        fde->PutBytes<uint8_t>(DW_CFA_offset | 3);
+        break;
+      case UNWIND_X86_64_REG_R12:
+        fde->PutBytes<uint8_t>(DW_CFA_offset | 12);
+        break;
+      case UNWIND_X86_64_REG_R13:
+        fde->PutBytes<uint8_t>(DW_CFA_offset | 13);
+        break;
+      case UNWIND_X86_64_REG_R14:
+        fde->PutBytes<uint8_t>(DW_CFA_offset | 14);
+        break;
+      case UNWIND_X86_64_REG_R15:
+        fde->PutBytes<uint8_t>(DW_CFA_offset | 15);
+        break;
+    }
+
+    if ((saved_registers_locations & 0x7) != UNWIND_X86_64_REG_NONE) {
+      fde->PutEncodedULEB128Bytes(saved_registers_cfa_offset);
+    }
+
+    saved_registers_cfa_offset += 8;
+    saved_registers_locations >>= 3;
+  }
+
+//  fde->PutBytes<uint8_t>(DW_CFA_def_cfa);
+//  fde->PutEncodedULEB128Bytes(7);
+//  fde->PutEncodedULEB128Bytes(8);
+}
+
+void UnwindGeneratorMacOS::WriteDWARFInstructions(ByteStream *fde, uint32_t encoding) {
+  uint32_t mode = encoding & UNWIND_X86_64_MODE_MASK;
+  switch(mode) {
+    case UNWIND_X86_64_MODE_RBP_FRAME:
+      WriteDWARFInstructionsRBP(fde, encoding);
+      break;
+    default:
+      WARN("Unsupported encoding");
+      break;
+  }
+}
+
+size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
+                                      UnwindDataMacOS::Metadata metadata) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+
+  uint32_t personality_index = EXTRACT_BITS(metadata.encoding, UNWIND_PERSONALITY_MASK);      // 1-based index
+  size_t cie_address = unwind_data->cie_addresses[personality_index];
+
+  ByteStream fde;
+  fde.PutBytes<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
+  fde.PutBytes<uint64_t>(metadata.translated_min_address);                                    // PC start
+  fde.PutBytes<uint64_t>(metadata.translated_max_address - metadata.translated_min_address);  // PC range
+  fde.PutEncodedULEB128Bytes(8);                                                              // aug length
+  fde.PutBytes<uint64_t>(metadata.lsda);                                                      // lsda
+
+  WriteDWARFInstructions(&fde, metadata.encoding);
+
+  fde.PutBytes<uint32_t>(fde.size(), true);                                                   // length
+
+  tinyinst_.WriteCode(module, fde.data(), fde.size());
   return fde_address;
 }
 
 size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-
-  // TODO(aniculae): set unwind_data->have_data_to_register variable
-  // if there are new FDEs that need to be registered
-  // since the last call to MaybeRedirectExecution.
-  // If we're emitting registration code every time, we'll very
-  // quickly run out of allocated space for instrumented code
-  if(!unwind_data->have_data_to_register) {
+  if(unwind_data->metadata_list.empty()) {
     return IP;
   }
   
   size_t code_size_before = module->instrumented_code_allocated;
 
-  //TODO(aniculae): Write everything that needs to be written to the target process here
   std::vector<size_t> fde_addresses;
-  size_t test_fde_address = WriteTestFde(module);
-  fde_addresses.push_back(test_fde_address);
+  for (auto &metadata: unwind_data->metadata_list) {
+    size_t fde_address = WriteFDE(module, metadata);
+    fde_addresses.push_back(fde_address);
+  }
   
   size_t fde_array_start = tinyinst_.GetCurrentInstrumentedAddress(module);
-  
-  //TODO(aniculae): Write *addresses* of FDEs to-be-registered here
   for(auto it = fde_addresses.begin(); it != fde_addresses.end(); it++) {
     tinyinst_.WritePointer(module, *it);
   }
-
   size_t fde_array_end = tinyinst_.GetCurrentInstrumentedAddress(module);
  
   if(!register_frame_addr) {
@@ -356,31 +584,11 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   // now it's the same as fde_array_end, but that might change in the future
   // if other stuff gets written before the next line
   size_t continue_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-  
-  // make sure we aren't clobbering the stack
-  tinyinst_.assembler_->OffsetStack(module, -tinyinst_.sp_offset);
 
   size_t assembly_offset = module->instrumented_code_allocated;
   
-  unsigned char register_assembly_x86[] =
-  { 0x48, 0x8B, 0x1D, 0x13, 0x00, 0x00, 0x00, // mov rbx, [rip + offset]; rbx becomes the current array pointer
-    0x4C, 0x8B, 0x25, 0x14, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes the end array pointer
-    0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes __register_frame address
-    0xE9, 0x18, 0x00, 0x00, 0x00, // jmp 0x18
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array start addr goes here
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array end addr goes here
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // __register_frame addr goes here
-    0x4C, 0x39, 0xE3, // cmp rbx, r12
-    0x0F, 0x83, 0x0F, 0x00, 0x00, 0x00, // JAE 0x0F (loop end)
-    0x48, 0x8B, 0x3B, // mov rdi, [rbx]
-    0x41, 0xFF, 0xD5, // call r13
-    0x48, 0x83, 0xC3, 0x08, // add rbx, 8
-    0xE9, 0xe8, 0xff, 0xff, 0xff, // jmp to loop start
-   };
-  size_t register_assembly_x86_data_offset = 26;
-  
   // write the assembly snippet that calls __register_frame
-  tinyinst_.WriteCode(module, register_assembly_x86, sizeof(register_assembly_x86));
+  tinyinst_.WriteCode(module, (void*)register_assembly_x86, sizeof(register_assembly_x86));
   
   // fill out the missing pieces in the assembly snippet
   tinyinst_.WritePointerAtOffset(module,
@@ -395,9 +603,6 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
                                  register_frame_addr,
                                  assembly_offset +
                                  register_assembly_x86_data_offset + 16);
-  
-  // restore stack
-  tinyinst_.assembler_->OffsetStack(module, tinyinst_.sp_offset);
 
   // insert a breakpoint instruction
   size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
@@ -414,8 +619,104 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
 
   // we registered everything we have so far
-  unwind_data->have_data_to_register = false;
+  unwind_data->metadata_list.clear();
+  unwind_data->last_lookup = UnwindDataMacOS::LastLookup();
   
   // give the target process the address to continue from
   return continue_address;
+}
+
+size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t original_personality) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  auto iter = unwind_data->translated_personalities.find(original_personality);
+  if(iter != unwind_data->translated_personalities.end()) {
+    return iter->second;
+  }
+
+  size_t code_size_before = module->instrumented_code_allocated;
+
+  size_t new_personality_addr = tinyinst_.GetCurrentInstrumentedAddress(module);
+  
+  unsigned char assembly_part1[] = {
+    // function prologue
+    0x55, // push rbp
+    0x48, 0x89, 0xE5, // mov rbp, rsp
+    // save registers we're modifying
+    0x53,
+    0x41, 0x54,
+    0x41, 0x55,
+    0x41, 0x56,
+    // push personality parameters on stack
+    0x57, // push rdi
+    0x56, // push rsi
+    0x52, // push rdx
+    0x51, // push rcx
+    0x41, 0x50, // push r8
+    0x41, 0x51,  // push r9
+    0x48, 0x8B, 0x1D, 0x13, 0x00, 0x00, 0x00, // mov rbx, [rip + offset]; rbx becomes the original personality
+    0x4C, 0x8B, 0x25, 0x14, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes _Unwind_GetIP
+    0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
+    0xE9, 0x18, 0x00, 0x00, 0x00 // jmp 0x18
+  };
+  
+  tinyinst_.WriteCode(module, assembly_part1, sizeof(assembly_part1));
+  tinyinst_.WritePointer(module, original_personality);
+  tinyinst_.WritePointer(module, unwind_getip);
+  tinyinst_.WritePointer(module, unwind_setip);
+
+  unsigned char assembly_part2[] = {
+    // save the unwinding context in r14 for later
+    0x4D, 0x89, 0xC6, // mov    r14,r8
+    // _Unwind_GetIP(context)
+    0x4C, 0x89, 0xC7, // mov    rdi,r8
+    0x41, 0xFF, 0xD4  // call   r12
+  };
+  
+  tinyinst_.WriteCode(module, assembly_part2, sizeof(assembly_part2));
+
+  size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+  tinyinst_.assembler_->Breakpoint(module);
+  unwind_data->personality_breakpoints.insert(breakpoint_address);
+
+  unsigned char assembly_part3[] = {
+    // _Unwind_SetIP(context, modified_ip)
+    0x4C, 0x89, 0xF7, // mov    rdi,r14
+    0x48, 0x89, 0xC6, // mov    rsi,rax
+    0x41, 0xFF, 0xD5, // call   r13
+    // restore original personality parameters
+    0x41, 0x59, // pop r9
+    0x41, 0x58, // pop r8
+    0x59, // pop rcx
+    0x5A, // pop rdx
+    0x5E, // pop rsi
+    0x5F, // pop rdi
+    0x48, 0x85, 0xDB, // test   rbx,rbx
+    0x0F, 0x84, 0x07, 0x00, 0x00, 0x00, // je no_original_personality
+    // call original personality function
+    0xFF, 0xD3, // call rbx
+    0xE9, 0x07, 0x00, 0x00, 0x00, // jmp end
+    // no_original_personality:
+    0x48, 0xC7, 0xC0, 0x08, 0x00, 0x00, 0x00, // mov rax,8 (_URC_CONTINUE_UNWIND )
+    // end:
+    //restore registers
+    0x41, 0x5E,
+    0x41, 0x5D,
+    0x41, 0x5C,
+    0x5B,
+    //function epilogue
+    0x48, 0x89, 0xEC, // mov    rsp,rbp
+    0x5D, // pop rbp
+    0xC3 // ret
+  };
+
+  tinyinst_.WriteCode(module, assembly_part3, sizeof(assembly_part3));
+  
+  // compute how much data we wrote and commit it all to the target process
+  size_t code_size_after = module->instrumented_code_allocated;
+  tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
+  
+  unwind_data->translated_personalities[original_personality] = new_personality_addr;
+  
+  return new_personality_addr;
 }

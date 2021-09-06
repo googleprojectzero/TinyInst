@@ -981,6 +981,8 @@ bool Debugger::IsDyld(void *base_address) {
 void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
   mach_header_64 mach_header;
   GetMachHeader(base_address, &mach_header);
+  bool in_shared_cache = (mach_header.filetype == MH_DYLIB)
+                         && (mach_header.flags & MH_DYLIB_IN_CACHE);
 
   void *load_commands_buffer = NULL;
   GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
@@ -1002,30 +1004,45 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
 
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
 
-  char *strtab = (char*)malloc(symtab_cmd->strsize);
+  char *strtab = NULL;
   uint64_t strtab_addr = linkedit_cmd->vmaddr + file_vm_slide
                          + symtab_cmd->stroff - linkedit_cmd->fileoff;
-  RemoteRead((void*)strtab_addr, strtab, symtab_cmd->strsize);
+  if(!in_shared_cache) {
+    strtab = (char*)malloc(symtab_cmd->strsize);
+    RemoteRead((void*)strtab_addr, strtab, symtab_cmd->strsize);
+  }
+
+  char *symtab = (char*)malloc(symtab_cmd->nsyms * sizeof(nlist_64));
+  uint64_t symtab_addr = linkedit_cmd->vmaddr + file_vm_slide
+                         + symtab_cmd->symoff - linkedit_cmd->fileoff;
+  RemoteRead((void*)symtab_addr, symtab, symtab_cmd->nsyms * sizeof(nlist_64));
 
   void *symbol_address = NULL;
-  for (uint32_t i = 0; i < symtab_cmd->nsyms && !symbol_address; ++i) {
-    uint64_t nlist_addr = linkedit_cmd->vmaddr + file_vm_slide
-                          + symtab_cmd->symoff - linkedit_cmd->fileoff + i * sizeof(nlist_64);
 
-    nlist_64 symbol = {};
-    RemoteRead((void*)nlist_addr, &symbol, sizeof(nlist_64));
+  size_t curr_symbol_address = (size_t)symtab;
+  for (int i = 0; i < symtab_cmd->nsyms && !symbol_address; ++i) {
+    nlist_64 curr_symbol = *(nlist_64*)curr_symbol_address;
+    if ((curr_symbol.n_type & N_TYPE) == N_SECT) {
+      char *curr_sym_name = NULL;
+      if (!in_shared_cache) {
+        curr_sym_name = strtab + curr_symbol.n_un.n_strx;
+      } else {
+        std::string curr_sym_name_string;
+        mach_target->ReadCString(strtab_addr + curr_symbol.n_un.n_strx, curr_sym_name_string);
+        curr_sym_name = (char*)curr_sym_name_string.c_str();
+      }
 
-    if ((symbol.n_type & N_TYPE) == N_SECT) {
-      char *sym_name_start = strtab + symbol.n_un.n_strx;
-      // printf("%s\n", sym_name_start);
-      if (!strcmp(sym_name_start, symbol_name)) {
-        symbol_address = (void*)((uint64_t)base_address - text_cmd->vmaddr + symbol.n_value);
+      if (!strcmp(curr_sym_name, symbol_name)) {
+        symbol_address = (void*)((uint64_t)base_address - text_cmd->vmaddr + curr_symbol.n_value);
         break;
       }
     }
+
+    curr_symbol_address += sizeof(nlist_64);
   }
 
   free(strtab);
+  free(symtab);
   free(load_commands_buffer);
   return symbol_address;
 }
@@ -1339,14 +1356,15 @@ void Debugger::SaveRegisters(SavedRegisters *registers) {
   memcpy(&registers->gpr_registers,
          mach_exception->new_state,
          registers->gpr_count * sizeof(natural_t));
-  
+
+  registers->fpu_count = sizeof(ARCH_FPU_STATE_T) / sizeof(natural_t);
   kern_return_t ret = thread_get_state(mach_exception->thread_port,
                                        ARCH_FPU_STATE,
                                        (thread_state_t)&registers->fpu_registers,
                                        &registers->fpu_count);
   
   if(ret != KERN_SUCCESS) {
-    FATAL("Error getting FPU registers");
+    FATAL("Error getting FPU registers %d", ret);
   }
 }
 

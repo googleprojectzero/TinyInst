@@ -55,6 +55,7 @@ public:
 
   dyld_all_image_infos GetAllImageInfos();
   void ReadCString(uint64_t address, size_t max_size, void *string);
+  void ReadCString(uint64_t address, std::string &string);
 
   kern_return_t WaitForException(uint32_t timeout, mach_msg_header_t *req, uint32_t size);
   void ReplyToException(mach_msg_header_t *rpl);
