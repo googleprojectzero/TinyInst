@@ -932,6 +932,9 @@ void X86Assembler::HandleBasicBlockEnd(
         }
         tinyinst_.WriteCode(module, encoded, olen);
 
+        size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+        tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
+
         // jmp return_address
         tinyinst_.WriteCode(module, JMP, sizeof(JMP));
 
@@ -992,6 +995,9 @@ void X86Assembler::HandleBasicBlockEnd(
           tinyinst_.WriteCode(module, CALL, sizeof(CALL));
           FixDisp4(module, sizeof(JMP));
 
+          size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+          tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
+
           tinyinst_.WriteCode(module, JMP, sizeof(JMP));
 
           tinyinst_.FixOffsetOrEnqueue(
@@ -1022,6 +1028,9 @@ void X86Assembler::HandleBasicBlockEnd(
             inst,
             (unsigned char *)(code_ptr + last_offset),
             (unsigned char *)(address + last_offset));
+
+          size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+          tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
 
           tinyinst_.WriteCode(module, JMP, sizeof(JMP));
 

@@ -53,6 +53,8 @@ public:
   { }
   
   virtual void OnModuleLoaded(void *module, char *module_name) { }
+
+  virtual void OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address) { }
   
   virtual bool HandleBreakpoint(ModuleInfo* module, void *address) { return false; }
 
