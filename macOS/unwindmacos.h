@@ -40,13 +40,11 @@ public:
   std::vector<size_t> cie_addresses;
 
   void LookupEncoding(size_t original_address);
-  void LookupLSDA(size_t original_address);
   void AddMetadata(size_t original_address,
                    size_t translated_address);
 
   struct Metadata {
     compact_unwind_encoding_t encoding;
-    size_t lsda_address;
 
     size_t translated_min_address;
     size_t translated_max_address;
@@ -54,11 +52,9 @@ public:
     Metadata();
 
     Metadata(compact_unwind_encoding_t encoding,
-             size_t lsda_address,
              size_t translated_min_address,
              size_t translated_max_address)
     : encoding(encoding),
-      lsda_address(lsda_address),
       translated_min_address(translated_min_address),
       translated_max_address(translated_max_address)
     {}
@@ -66,25 +62,16 @@ public:
 
   std::vector<Metadata> metadata_list;
   std::map<size_t, compact_unwind_encoding_t> encoding_map;
-  std::map<size_t, size_t> lsda_map;
 
   struct LastLookup {
     compact_unwind_encoding_t encoding;
     size_t encoding_min_address;
     size_t encoding_max_address;
 
-    size_t lsda_address;
-    size_t lsda_min_address;
-    size_t lsda_max_address;
-
     LastLookup() {
       encoding = 0;
       encoding_min_address = (size_t)(-1);
       encoding_max_address = 0;
-
-      lsda_address = -1;
-      lsda_min_address = (size_t)(-1);
-      lsda_max_address = 0;
     }
 
     void SetEncoding(compact_unwind_encoding_t encoding,
@@ -95,14 +82,6 @@ public:
       this->encoding_max_address = encoding_max_address;
     }
 
-    void SetLsda(size_t lsda_address,
-                 size_t lsda_min_address,
-                 size_t lsda_max_address) {
-      this->lsda_address = lsda_address;
-      this->lsda_min_address = lsda_min_address;
-      this->lsda_max_address = lsda_max_address;
-    }
-
     inline bool IsEncodingValid() {
       return (encoding != 0
               && encoding_min_address != 0 && encoding_min_address != (size_t)(-1)
@@ -111,16 +90,6 @@ public:
 
     inline bool IsEncodingMiss(size_t original_address) {
       return (original_address < encoding_min_address || encoding_max_address <= original_address);
-    }
-
-    inline bool IsLsdaValid() {
-      return (lsda_address != -1
-              && lsda_min_address != 0 && lsda_min_address != (size_t)(-1)
-              && lsda_max_address != 0 && lsda_max_address != (size_t)(-1));
-    }
-
-    inline bool IsLsdaMiss(size_t original_address) {
-      return (original_address < lsda_min_address || lsda_max_address <= original_address);
     }
   } last_lookup;
   
@@ -226,15 +195,10 @@ private:
   void ExtractEncodingsRegular(ModuleInfo *module,
                                unwind_info_section_header_index_entry *first_level_entry,
                                size_t second_level_page_addr);
-  void ExtractLSDAsSecondLevel(ModuleInfo *module,
-                               unwind_info_section_header_index_entry *first_level_entry);
 
   compact_unwind_encoding_t GetCompactEncoding(ModuleInfo *module,
                                                size_t second_level_page_addr,
                                                uint32_t curr_entry_encoding_index);
-
-  void WriteDWARFInstructions(ByteStream *fde, uint32_t encoding);
-  void WriteDWARFInstructionsRBP(ByteStream *fde, uint32_t encoding);
 
   size_t WriteCIE(ModuleInfo *module, const char *augmentation, size_t personality_addr);
   void WriteCIEs(ModuleInfo *module);

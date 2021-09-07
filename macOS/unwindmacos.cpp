@@ -43,38 +43,15 @@ void UnwindDataMacOS::LookupEncoding(size_t original_address) {
   }
 }
 
-void UnwindDataMacOS::LookupLSDA(size_t original_address) {
-  if (last_lookup.IsLsdaMiss(original_address)) {
-    if (!lsda_map.empty() && (last_lookup.encoding & UNWIND_HAS_LSDA)) {
-      auto it = lsda_map.upper_bound(original_address);
-      if (it == lsda_map.begin()) {
-        last_lookup.SetLsda(-1, 0, it->first - 1);
-      } else if (it == lsda_map.end()) { // Sentinel entry
-        last_lookup.SetLsda(-1, prev(it)->first, -1);
-      } else {
-        last_lookup.SetLsda(prev(it)->second, prev(it)->first, it->first - 1);
-      }
-    } else {
-      last_lookup.SetLsda(0, last_lookup.encoding_min_address, last_lookup.encoding_max_address);
-    }
-  }
-}
-
 void UnwindDataMacOS::AddMetadata(size_t original_address, size_t translated_address) {
   LookupEncoding(original_address);
   if (!last_lookup.IsEncodingValid()) {
     return;
   }
 
-  LookupLSDA(original_address);
-  if (!last_lookup.IsLsdaValid()) {
-    return;
-  }
-
   if (metadata_list.empty()
-      || metadata_list.back().encoding != last_lookup.encoding
-      || metadata_list.back().lsda_address != last_lookup.lsda_address) {
-    metadata_list.push_back(Metadata(last_lookup.encoding, last_lookup.lsda_address,
+      || metadata_list.back().encoding != last_lookup.encoding) {
+    metadata_list.push_back(Metadata(last_lookup.encoding,
                                      translated_address, translated_address));
   } else {
     metadata_list.back().translated_max_address = translated_address;
@@ -175,7 +152,7 @@ void UnwindGeneratorMacOS::OnBasicBlockEnd(ModuleInfo* module,
                                            size_t translated_address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
   if (!unwind_data->metadata_list.empty()
-      && unwind_data->last_lookup.IsEncodingValid() && unwind_data->last_lookup.IsLsdaValid()) {
+      && unwind_data->last_lookup.IsEncodingValid()) {
     unwind_data->metadata_list.back().translated_max_address = translated_address - 1;
   }
 }
@@ -205,17 +182,9 @@ size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
   cie.PutSLEB128Value(1);                     // data alignment factor, SLEB128 encoded
   cie.PutULEB128Value(16);                    // return address register, ULEB128 encoded
 
-  cie.PutULEB128Value(10);                    // augmentation length
+  cie.PutULEB128Value(9);                     // augmentation length
   cie.PutValue<uint8_t>(0);                   // personality encoding
   cie.PutValue<uint64_t>(personality_addr);   // personality address
-  cie.PutValue<uint8_t>(0);                   // lsda encoding
-
-  cie.PutValue<uint8_t>(DW_CFA_def_cfa);
-  cie.PutULEB128Value(7);
-  cie.PutULEB128Value(8);
-
-  cie.PutValue<uint8_t>(DW_CFA_offset | 16);
-  cie.PutULEB128Value(-8);
 
   cie.PutValueFront<uint32_t>(cie.size());    // CIE length
 
@@ -234,14 +203,14 @@ void UnwindGeneratorMacOS::WriteCIEs(ModuleInfo *module) {
 
   size_t code_size_before = module->instrumented_code_allocated;
 
-  unwind_data->cie_addresses.push_back(WriteCIE(module, "zPL", 0));
+  unwind_data->cie_addresses.push_back(WriteCIE(module, "zP", 0));
   for (int curr_cnt = 0; curr_cnt < unwind_section_header->personalityArrayCount; ++curr_cnt) {
     uint32_t personality_offset = *(uint32_t*)curr_personality_entry_addr;
     size_t personality_address;
     tinyinst_.RemoteRead((void*)((size_t)module->module_header + personality_offset),
                          &personality_address,
                          sizeof(size_t));
-    unwind_data->cie_addresses.push_back(WriteCIE(module, "zPL", personality_address));
+    unwind_data->cie_addresses.push_back(WriteCIE(module, "zP", personality_address));
 
     curr_personality_entry_addr += sizeof(uint32_t);
   }
@@ -261,7 +230,6 @@ void UnwindGeneratorMacOS::ExtractFirstLevel(ModuleInfo *module) {
 
   // last entry is a sentinel entry
   // (secondLevelPagesSectionOffset == 0,
-  //  lsdaIndexArraySectionOffset == end of the previous lsda array,
   //  functionOffset == maximum_mapped_address + 1)
   for (int entry_cnt = 0; entry_cnt < unwind_section_header->indexCount; ++entry_cnt) {
     unwind_info_section_header_index_entry *curr_first_level_entry =
@@ -270,11 +238,8 @@ void UnwindGeneratorMacOS::ExtractFirstLevel(ModuleInfo *module) {
     if (entry_cnt + 1 == unwind_section_header->indexCount) { // Sentinel entry
       unwind_data->encoding_map[(size_t)module->module_header
                                 + curr_first_level_entry->functionOffset] = 0;
-      unwind_data->lsda_map[(size_t)module->module_header
-                            + curr_first_level_entry->functionOffset] = 0;
     } else {
       ExtractEncodingsSecondLevel(module, curr_first_level_entry);
-      ExtractLSDAsSecondLevel(module, curr_first_level_entry);
     }
 
     curr_first_level_entry_addr += sizeof(unwind_info_section_header_index_entry);
@@ -393,32 +358,6 @@ void UnwindGeneratorMacOS::ExtractEncodingsRegular(ModuleInfo *module,
   }
 }
 
-void UnwindGeneratorMacOS::ExtractLSDAsSecondLevel(ModuleInfo *module,
-                                                   unwind_info_section_header_index_entry *first_level_entry) {
-  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-
-  size_t lsda_array_size = (first_level_entry + 1)->lsdaIndexArraySectionOffset
-                           - first_level_entry->lsdaIndexArraySectionOffset;
-  size_t lsda_array_count =
-    lsda_array_size / sizeof(unwind_info_section_header_lsda_index_entry);
-
-  size_t curr_lsda_entry_addr =
-    (size_t)unwind_data->unwind_section_buffer + first_level_entry->lsdaIndexArraySectionOffset;
-
-  CheckUnwindBufferBounds(module, "LSDA array", curr_lsda_entry_addr, lsda_array_size);
-
-  for (size_t curr_cnt = 0; curr_cnt < lsda_array_count; ++curr_cnt) {
-    unwind_info_section_header_lsda_index_entry *curr_lsda_entry =
-      (unwind_info_section_header_lsda_index_entry *)curr_lsda_entry_addr;
-
-    unwind_data->lsda_map[(size_t)module->module_header
-                          + curr_lsda_entry->functionOffset] = (size_t)module->module_header
-                                                               + curr_lsda_entry->lsdaOffset;
-
-    curr_lsda_entry_addr += sizeof(unwind_info_section_header_lsda_index_entry);
-  }
-}
-
 void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
   if(strcmp(module_name, "libunwind.dylib") == 0) {
     register_frame_addr = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"___register_frame");
@@ -469,71 +408,6 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   return true;
 }
 
-void UnwindGeneratorMacOS::WriteDWARFInstructionsRBP(ByteStream *fde, uint32_t encoding) {
-  fde->PutValue<uint8_t>(DW_CFA_advance_loc | 1);
-
-  fde->PutValue<uint8_t>(DW_CFA_def_cfa_offset);
-  fde->PutULEB128Value(16);
-
-  fde->PutValue<uint8_t>(DW_CFA_offset | 6);
-  fde->PutULEB128Value(-16);
-
-  fde->PutValue<uint8_t>(DW_CFA_advance_loc | 3);
-
-  fde->PutValue<uint8_t>(DW_CFA_def_cfa_register);
-  fde->PutULEB128Value(6);
-
-  uint32_t saved_registers_cfa_offset = -16 - 8 * EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_OFFSET);
-  uint32_t saved_registers_locations = EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_REGISTERS);
-
-  for (int i = 0; i < 5; i++) {
-    switch (saved_registers_locations & 0x7) {
-      case UNWIND_X86_64_REG_NONE:
-        break;
-      case UNWIND_X86_64_REG_RBX:
-        fde->PutValue<uint8_t>(DW_CFA_offset | 3);
-        break;
-      case UNWIND_X86_64_REG_R12:
-        fde->PutValue<uint8_t>(DW_CFA_offset | 12);
-        break;
-      case UNWIND_X86_64_REG_R13:
-        fde->PutValue<uint8_t>(DW_CFA_offset | 13);
-        break;
-      case UNWIND_X86_64_REG_R14:
-        fde->PutValue<uint8_t>(DW_CFA_offset | 14);
-        break;
-      case UNWIND_X86_64_REG_R15:
-        fde->PutValue<uint8_t>(DW_CFA_offset | 15);
-        break;
-    }
-
-    if ((saved_registers_locations & 0x7) != UNWIND_X86_64_REG_NONE) {
-      fde->PutULEB128Value(saved_registers_cfa_offset);
-    }
-
-    saved_registers_cfa_offset += 8;
-    saved_registers_locations >>= 3;
-  }
-
-// Once Dwarf Instructions will be tested and supported,
-// one might want to check if the code below is needed or not.
-//  fde->PutBytes<uint8_t>(DW_CFA_def_cfa);
-//  fde->PutEncodedULEB128Bytes(7);
-//  fde->PutEncodedULEB128Bytes(8);
-}
-
-void UnwindGeneratorMacOS::WriteDWARFInstructions(ByteStream *fde, uint32_t encoding) {
-  uint32_t mode = encoding & UNWIND_X86_64_MODE_MASK;
-  switch(mode) {
-    case UNWIND_X86_64_MODE_RBP_FRAME:
-      WriteDWARFInstructionsRBP(fde, encoding);
-      break;
-    default:
-      WARN("Unsupported encoding mode 0x%x", mode);
-      break;
-  }
-}
-
 size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
                                       UnwindDataMacOS::Metadata metadata) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
@@ -546,10 +420,7 @@ size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
   fde.PutValue<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
   fde.PutValue<uint64_t>(metadata.translated_min_address);                                    // PC start
   fde.PutValue<uint64_t>(metadata.translated_max_address - metadata.translated_min_address);  // PC range
-  fde.PutULEB128Value(8);                                                                     // aug length
-  fde.PutValue<uint64_t>(metadata.lsda_address);                                              // lsda
-
-  WriteDWARFInstructions(&fde, metadata.encoding);
+  fde.PutULEB128Value(0);                                                                     // aug length
 
   fde.PutValueFront<uint32_t>(fde.size());                                                    // length
 
