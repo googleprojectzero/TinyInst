@@ -46,7 +46,7 @@ public:
 
   struct Metadata {
     compact_unwind_encoding_t encoding;
-    size_t lsda;
+    size_t lsda_address;
 
     size_t translated_min_address;
     size_t translated_max_address;
@@ -54,11 +54,11 @@ public:
     Metadata();
 
     Metadata(compact_unwind_encoding_t encoding,
-             size_t lsda,
+             size_t lsda_address,
              size_t translated_min_address,
              size_t translated_max_address)
     : encoding(encoding),
-      lsda(lsda),
+      lsda_address(lsda_address),
       translated_min_address(translated_min_address),
       translated_max_address(translated_max_address)
     {}
@@ -73,7 +73,7 @@ public:
     size_t encoding_min_address;
     size_t encoding_max_address;
 
-    size_t lsda;
+    size_t lsda_address;
     size_t lsda_min_address;
     size_t lsda_max_address;
 
@@ -82,7 +82,7 @@ public:
       encoding_min_address = (size_t)(-1);
       encoding_max_address = 0;
 
-      lsda = -1;
+      lsda_address = -1;
       lsda_min_address = (size_t)(-1);
       lsda_max_address = 0;
     }
@@ -95,10 +95,10 @@ public:
       this->encoding_max_address = encoding_max_address;
     }
 
-    void SetLsda(size_t lsda,
+    void SetLsda(size_t lsda_address,
                  size_t lsda_min_address,
                  size_t lsda_max_address) {
-      this->lsda = lsda;
+      this->lsda_address = lsda_address;
       this->lsda_min_address = lsda_min_address;
       this->lsda_max_address = lsda_max_address;
     }
@@ -114,7 +114,7 @@ public:
     }
 
     inline bool IsLsdaValid() {
-      return (lsda != -1
+      return (lsda_address != -1
               && lsda_min_address != 0 && lsda_min_address != (size_t)(-1)
               && lsda_max_address != 0 && lsda_max_address != (size_t)(-1));
     }
@@ -129,10 +129,14 @@ public:
     size_t continue_ip;
   };
   std::unordered_map<size_t, BreakpointData> register_breakpoints;
-  
+
+  // Maps the addresses of the original personality routines (the keys)
+  // to the addresses of our custom personality routines (the values). 
   std::unordered_map<size_t, size_t> translated_personalities;
   std::unordered_set<size_t> personality_breakpoints;
 
+  // Maps the return addresses in the instrumented code (the keys)
+  // to the return addresses in the original code (the values).
   std::map<size_t, size_t> return_addresses;
 };
 
@@ -150,14 +154,16 @@ public:
   }
 
   template<typename T>
-  void PutBytes(T value, bool push_front = false) {
+  void PutValue(T value) {
     for (int i = 0; i < sizeof(T); ++i) {
       byte_stream.push_back((value >> (i * 8)) & 0xff);
     }
+  }
 
-    if (push_front) {
-      std::rotate(byte_stream.begin(), byte_stream.end() - sizeof(T), byte_stream.end());
-    }
+  template<typename T>
+  void PutValueFront(T value) {
+    PutValue(value);
+    std::rotate(byte_stream.begin(), byte_stream.end() - sizeof(T), byte_stream.end());
   }
 
   void PutString(const char *s) {
@@ -167,11 +173,11 @@ public:
     byte_stream.push_back(0);
   }
 
-  void PutEncodedULEB128Bytes(uint64_t value) {
+  void PutULEB128Value(uint64_t value) {
     encodeULEB128(value, byte_stream);
   }
 
-  void PutEncodedSLEB128Bytes(int64_t value) {
+  void PutSLEB128Value(int64_t value) {
     encodeSLEB128(value, byte_stream);
   }
 };
@@ -200,7 +206,9 @@ public:
   
   void OnModuleLoaded(void *module, char *module_name) override;
 
-  void OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address) override;
+  void OnReturnAddress(ModuleInfo *module,
+                       size_t original_address,
+                       size_t translated_address) override;
   
   bool HandleBreakpoint(ModuleInfo* module, void *address) override;
 
@@ -221,7 +229,8 @@ private:
   void ExtractLSDAsSecondLevel(ModuleInfo *module,
                                unwind_info_section_header_index_entry *first_level_entry);
 
-  compact_unwind_encoding_t GetCompactEncoding(ModuleInfo *module, size_t second_level_page_addr,
+  compact_unwind_encoding_t GetCompactEncoding(ModuleInfo *module,
+                                               size_t second_level_page_addr,
                                                uint32_t curr_entry_encoding_index);
 
   void WriteDWARFInstructions(ByteStream *fde, uint32_t encoding);
@@ -237,8 +246,8 @@ private:
   size_t unwind_getip;
   size_t unwind_setip;
 
-  static constexpr const unsigned char register_assembly_x86[] =
-  { // save registers
+  static constexpr unsigned char register_assembly_x86[] = {
+    // save registers
     0x53, // push   rbx
     0x41, 0x54, // push   r12
     0x41, 0x55, // push   r13

@@ -27,7 +27,6 @@ constexpr const unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
 void UnwindDataMacOS::LookupEncoding(size_t original_address) {
   if (encoding_map.empty()) {
-    last_lookup = LastLookup();
     return;
   }
 
@@ -46,7 +45,7 @@ void UnwindDataMacOS::LookupEncoding(size_t original_address) {
 
 void UnwindDataMacOS::LookupLSDA(size_t original_address) {
   if (last_lookup.IsLsdaMiss(original_address)) {
-    if (!lsda_map.empty() && last_lookup.encoding & UNWIND_HAS_LSDA) {
+    if (!lsda_map.empty() && (last_lookup.encoding & UNWIND_HAS_LSDA)) {
       auto it = lsda_map.upper_bound(original_address);
       if (it == lsda_map.begin()) {
         last_lookup.SetLsda(-1, 0, it->first - 1);
@@ -74,8 +73,8 @@ void UnwindDataMacOS::AddMetadata(size_t original_address, size_t translated_add
 
   if (metadata_list.empty()
       || metadata_list.back().encoding != last_lookup.encoding
-      || metadata_list.back().lsda != last_lookup.lsda) {
-    metadata_list.push_back(Metadata(last_lookup.encoding, last_lookup.lsda,
+      || metadata_list.back().lsda_address != last_lookup.lsda_address) {
+    metadata_list.push_back(Metadata(last_lookup.encoding, last_lookup.lsda_address,
                                      translated_address, translated_address));
   } else {
     metadata_list.back().translated_max_address = translated_address;
@@ -110,8 +109,7 @@ void UnwindGeneratorMacOS::SanityCheckUnwindHeader(ModuleInfo *module) {
   unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
 
   if (unwind_section_header->version != UNWIND_SECTION_VERSION) {
-    FATAL("Unexpected version (%u) in Unwind Section Header",
-          unwind_data->unwind_section_header->version);
+    FATAL("Unexpected version (%u) in Unwind Section Header", unwind_section_header->version);
   }
 
   size_t common_encodings_array_addr = (size_t)unwind_data->unwind_section_buffer
@@ -200,26 +198,26 @@ size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
   personality_addr = GetCustomPersonality(module, personality_addr);
   
   ByteStream cie;
-  cie.PutBytes<uint32_t>(0);          // CIE id, must be zero
-  cie.PutBytes<uint8_t>(3);           // version
-  cie.PutString(augmentation);        // augmentation string
-  cie.PutEncodedULEB128Bytes(1);      // code aligment factor, ULEB128 encoded
-  cie.PutEncodedSLEB128Bytes(1);      // data aligment factor, SLEB128 encoded
-  cie.PutEncodedULEB128Bytes(16);     // return address register, ULEB128 encoded
+  cie.PutValue<uint32_t>(0);                  // CIE id, must be zero
+  cie.PutValue<uint8_t>(3);                   // version
+  cie.PutString(augmentation);                // augmentation string
+  cie.PutULEB128Value(1);                     // code alignment factor, ULEB128 encoded
+  cie.PutSLEB128Value(1);                     // data alignment factor, SLEB128 encoded
+  cie.PutULEB128Value(16);                    // return address register, ULEB128 encoded
 
-  cie.PutEncodedULEB128Bytes(10);             // augmentation length
-  cie.PutBytes<uint8_t>(0);                   // personality encoding
-  cie.PutBytes<uint64_t>(personality_addr);   // personality address
-  cie.PutBytes<uint8_t>(0);                   // lsda encoding
+  cie.PutULEB128Value(10);                    // augmentation length
+  cie.PutValue<uint8_t>(0);                   // personality encoding
+  cie.PutValue<uint64_t>(personality_addr);   // personality address
+  cie.PutValue<uint8_t>(0);                   // lsda encoding
 
-  cie.PutBytes<uint8_t>(DW_CFA_def_cfa);
-  cie.PutEncodedULEB128Bytes(7);
-  cie.PutEncodedULEB128Bytes(8);
+  cie.PutValue<uint8_t>(DW_CFA_def_cfa);
+  cie.PutULEB128Value(7);
+  cie.PutULEB128Value(8);
 
-  cie.PutBytes<uint8_t>(DW_CFA_offset | 16);
-  cie.PutEncodedULEB128Bytes(-8);
+  cie.PutValue<uint8_t>(DW_CFA_offset | 16);
+  cie.PutULEB128Value(-8);
 
-  cie.PutBytes<uint32_t>(cie.size(), true); // CIE length
+  cie.PutValueFront<uint32_t>(cie.size());    // CIE length
 
   size_t cie_address = tinyinst_.GetCurrentInstrumentedAddress(module);
   tinyinst_.WriteCode(module, cie.data(), cie.size());
@@ -293,7 +291,8 @@ void UnwindGeneratorMacOS::ExtractEncodingsSecondLevel(ModuleInfo *module,
 
   size_t second_level_page_addr = (size_t)unwind_data->unwind_section_buffer
                                   + first_level_entry->secondLevelPagesSectionOffset;
-  CheckUnwindBufferBounds(module, "second_level_page_header.kind", second_level_page_addr, sizeof(uint32_t));
+  CheckUnwindBufferBounds(module, "second_level_page_header.kind",
+                          second_level_page_addr, sizeof(uint32_t));
 
   uint32_t unwind_second_level_type = *(uint32_t*)second_level_page_addr;
   if (unwind_second_level_type == UNWIND_SECOND_LEVEL_COMPRESSED) {
@@ -446,8 +445,8 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   if (it_personality != unwind_data->personality_breakpoints.end()) {
     size_t ip = tinyinst_.GetRegister(RAX);
 
-    auto it = unwind_data->return_addresses.lower_bound(ip);
-    if (it != unwind_data->return_addresses.end() && it->first == ip) {
+    auto it = unwind_data->return_addresses.find(ip);
+    if (it != unwind_data->return_addresses.end()) {
       ip = it->second - 1;
       tinyinst_.SetRegister(RAX, ip);
     }
@@ -471,18 +470,18 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
 }
 
 void UnwindGeneratorMacOS::WriteDWARFInstructionsRBP(ByteStream *fde, uint32_t encoding) {
-  fde->PutBytes<uint8_t>(DW_CFA_advance_loc | 1);
+  fde->PutValue<uint8_t>(DW_CFA_advance_loc | 1);
 
-  fde->PutBytes<uint8_t>(DW_CFA_def_cfa_offset);
-  fde->PutEncodedULEB128Bytes(16);
+  fde->PutValue<uint8_t>(DW_CFA_def_cfa_offset);
+  fde->PutULEB128Value(16);
 
-  fde->PutBytes<uint8_t>(DW_CFA_offset | 6);
-  fde->PutEncodedULEB128Bytes(-16);
+  fde->PutValue<uint8_t>(DW_CFA_offset | 6);
+  fde->PutULEB128Value(-16);
 
-  fde->PutBytes<uint8_t>(DW_CFA_advance_loc | 3);
+  fde->PutValue<uint8_t>(DW_CFA_advance_loc | 3);
 
-  fde->PutBytes<uint8_t>(DW_CFA_def_cfa_register);
-  fde->PutEncodedULEB128Bytes(6);
+  fde->PutValue<uint8_t>(DW_CFA_def_cfa_register);
+  fde->PutULEB128Value(6);
 
   uint32_t saved_registers_cfa_offset = -16 - 8 * EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_OFFSET);
   uint32_t saved_registers_locations = EXTRACT_BITS(encoding, UNWIND_X86_64_RBP_FRAME_REGISTERS);
@@ -492,30 +491,32 @@ void UnwindGeneratorMacOS::WriteDWARFInstructionsRBP(ByteStream *fde, uint32_t e
       case UNWIND_X86_64_REG_NONE:
         break;
       case UNWIND_X86_64_REG_RBX:
-        fde->PutBytes<uint8_t>(DW_CFA_offset | 3);
+        fde->PutValue<uint8_t>(DW_CFA_offset | 3);
         break;
       case UNWIND_X86_64_REG_R12:
-        fde->PutBytes<uint8_t>(DW_CFA_offset | 12);
+        fde->PutValue<uint8_t>(DW_CFA_offset | 12);
         break;
       case UNWIND_X86_64_REG_R13:
-        fde->PutBytes<uint8_t>(DW_CFA_offset | 13);
+        fde->PutValue<uint8_t>(DW_CFA_offset | 13);
         break;
       case UNWIND_X86_64_REG_R14:
-        fde->PutBytes<uint8_t>(DW_CFA_offset | 14);
+        fde->PutValue<uint8_t>(DW_CFA_offset | 14);
         break;
       case UNWIND_X86_64_REG_R15:
-        fde->PutBytes<uint8_t>(DW_CFA_offset | 15);
+        fde->PutValue<uint8_t>(DW_CFA_offset | 15);
         break;
     }
 
     if ((saved_registers_locations & 0x7) != UNWIND_X86_64_REG_NONE) {
-      fde->PutEncodedULEB128Bytes(saved_registers_cfa_offset);
+      fde->PutULEB128Value(saved_registers_cfa_offset);
     }
 
     saved_registers_cfa_offset += 8;
     saved_registers_locations >>= 3;
   }
 
+// Once Dwarf Instructions will be tested and supported,
+// one might want to check if the code below is needed or not.
 //  fde->PutBytes<uint8_t>(DW_CFA_def_cfa);
 //  fde->PutEncodedULEB128Bytes(7);
 //  fde->PutEncodedULEB128Bytes(8);
@@ -528,7 +529,7 @@ void UnwindGeneratorMacOS::WriteDWARFInstructions(ByteStream *fde, uint32_t enco
       WriteDWARFInstructionsRBP(fde, encoding);
       break;
     default:
-      WARN("Unsupported encoding");
+      WARN("Unsupported encoding mode 0x%x", mode);
       break;
   }
 }
@@ -542,15 +543,15 @@ size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
   size_t cie_address = unwind_data->cie_addresses[personality_index];
 
   ByteStream fde;
-  fde.PutBytes<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
-  fde.PutBytes<uint64_t>(metadata.translated_min_address);                                    // PC start
-  fde.PutBytes<uint64_t>(metadata.translated_max_address - metadata.translated_min_address);  // PC range
-  fde.PutEncodedULEB128Bytes(8);                                                              // aug length
-  fde.PutBytes<uint64_t>(metadata.lsda);                                                      // lsda
+  fde.PutValue<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
+  fde.PutValue<uint64_t>(metadata.translated_min_address);                                    // PC start
+  fde.PutValue<uint64_t>(metadata.translated_max_address - metadata.translated_min_address);  // PC range
+  fde.PutULEB128Value(8);                                                                     // aug length
+  fde.PutValue<uint64_t>(metadata.lsda_address);                                              // lsda
 
   WriteDWARFInstructions(&fde, metadata.encoding);
 
-  fde.PutBytes<uint32_t>(fde.size(), true);                                                   // length
+  fde.PutValueFront<uint32_t>(fde.size());                                                    // length
 
   tinyinst_.WriteCode(module, fde.data(), fde.size());
   return fde_address;
@@ -626,6 +627,10 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   return continue_address;
 }
 
+// The custom personality routines invoke the original routines, but before
+// doing so, they modify the IP value to point to the original code (instead
+// of the instrumented code). This way, the IP is found within the LSDA
+// table and the stack unwinding process succeeds.
 size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t original_personality) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
@@ -643,10 +648,10 @@ size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t ori
     0x55, // push rbp
     0x48, 0x89, 0xE5, // mov rbp, rsp
     // save registers we're modifying
-    0x53,
-    0x41, 0x54,
-    0x41, 0x55,
-    0x41, 0x56,
+    0x53, // push rbx
+    0x41, 0x54, // push r12
+    0x41, 0x55, // push r13
+    0x41, 0x56, // push r14
     // push personality parameters on stack
     0x57, // push rdi
     0x56, // push rsi
@@ -700,10 +705,10 @@ size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t ori
     0x48, 0xC7, 0xC0, 0x08, 0x00, 0x00, 0x00, // mov rax,8 (_URC_CONTINUE_UNWIND )
     // end:
     //restore registers
-    0x41, 0x5E,
-    0x41, 0x5D,
-    0x41, 0x5C,
-    0x5B,
+    0x41, 0x5E, // pop r14
+    0x41, 0x5D, // pop r13
+    0x41, 0x5C, // pop r12
+    0x5B, // pop rbx
     //function epilogue
     0x48, 0x89, 0xEC, // mov    rsp,rbp
     0x5D, // pop rbp
