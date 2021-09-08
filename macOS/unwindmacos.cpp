@@ -25,36 +25,37 @@ limitations under the License.
 
 constexpr const unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
-void UnwindDataMacOS::LookupEncoding(size_t original_address) {
+void UnwindDataMacOS::LookupOriginalMetadata(size_t original_address) {
   if (encoding_map.empty()) {
     return;
   }
 
-  if (last_lookup.IsEncodingMiss(original_address)) {
-    last_lookup = LastLookup();
+  if (last_original_metadata_lookup.Miss(original_address)) {
     auto it = encoding_map.upper_bound(original_address);
     if (it == encoding_map.begin()) {
-      last_lookup.SetEncoding(0, 0, it->first - 1);
+      last_original_metadata_lookup = Metadata(-1, 0, it->first - 1);
     } else if (it == encoding_map.end()) { // Sentinel entry
-      last_lookup.SetEncoding(0, prev(it)->first, -1);
+      last_original_metadata_lookup = Metadata(-1, prev(it)->first, -1);
     } else {
-      last_lookup.SetEncoding(prev(it)->second, prev(it)->first, it->first - 1);
+      compact_unwind_encoding_t encoding = prev(it)->second;
+      uint32_t personality_index = EXTRACT_BITS(encoding, UNWIND_PERSONALITY_MASK);
+      last_original_metadata_lookup = Metadata(personality_index, prev(it)->first, it->first - 1);
     }
   }
 }
 
-void UnwindDataMacOS::AddMetadata(size_t original_address, size_t translated_address) {
-  LookupEncoding(original_address);
-  if (!last_lookup.IsEncodingValid()) {
+void UnwindDataMacOS::TranslateAndAddMetadata(size_t original_address, size_t translated_address) {
+  LookupOriginalMetadata(original_address);
+  if (!last_original_metadata_lookup.Valid()) {
     return;
   }
 
-  if (metadata_list.empty()
-      || metadata_list.back().encoding != last_lookup.encoding) {
-    metadata_list.push_back(Metadata(last_lookup.encoding,
-                                     translated_address, translated_address));
+  if (translated_metadata_list.empty()
+      || translated_metadata_list.back().personality_index != last_original_metadata_lookup.personality_index) {
+    translated_metadata_list.push_back(Metadata(last_original_metadata_lookup.personality_index,
+                                       translated_address, translated_address));
   } else {
-    metadata_list.back().translated_max_address = translated_address;
+    translated_metadata_list.back().max_address = translated_address;
   }
 }
 
@@ -63,7 +64,7 @@ UnwindDataMacOS::UnwindDataMacOS() {
   unwind_section_size = 0;
   unwind_section_buffer = NULL;
   unwind_section_header = NULL;
-  last_lookup = LastLookup();
+  last_original_metadata_lookup = Metadata();
 }
 
 UnwindDataMacOS::~UnwindDataMacOS() {
@@ -138,22 +139,24 @@ void UnwindGeneratorMacOS::OnModuleInstrumented(ModuleInfo* module) {
 void UnwindGeneratorMacOS::OnBasicBlockStart(ModuleInfo* module,
                                              size_t original_address,
                                              size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->AddMetadata(original_address, translated_address);
+  ((UnwindDataMacOS *)module->unwind_data)->TranslateAndAddMetadata(original_address,
+                                                                    translated_address);
 }
 
 void UnwindGeneratorMacOS::OnInstruction(ModuleInfo* module,
                                          size_t original_address,
                                          size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->AddMetadata(original_address, translated_address);
+  ((UnwindDataMacOS *)module->unwind_data)->TranslateAndAddMetadata(original_address,
+                                                                    translated_address);
 }
 
 void UnwindGeneratorMacOS::OnBasicBlockEnd(ModuleInfo* module,
                                            size_t original_address,
                                            size_t translated_address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  if (!unwind_data->metadata_list.empty()
-      && unwind_data->last_lookup.IsEncodingValid()) {
-    unwind_data->metadata_list.back().translated_max_address = translated_address - 1;
+  if (!unwind_data->translated_metadata_list.empty()
+      && unwind_data->last_original_metadata_lookup.Valid()) {
+    unwind_data->translated_metadata_list.back().max_address = translated_address - 1;
   }
 }
 
@@ -409,17 +412,16 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
 }
 
 size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
-                                      UnwindDataMacOS::Metadata metadata) {
+                                      UnwindDataMacOS::Metadata translated_metadata) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
   size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
 
-  uint32_t personality_index = EXTRACT_BITS(metadata.encoding, UNWIND_PERSONALITY_MASK);      // 1-based index
-  size_t cie_address = unwind_data->cie_addresses[personality_index];
+  size_t cie_address = unwind_data->cie_addresses[translated_metadata.personality_index];
 
   ByteStream fde;
   fde.PutValue<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
-  fde.PutValue<uint64_t>(metadata.translated_min_address);                                    // PC start
-  fde.PutValue<uint64_t>(metadata.translated_max_address - metadata.translated_min_address);  // PC range
+  fde.PutValue<uint64_t>(translated_metadata.min_address);                                    // PC start
+  fde.PutValue<uint64_t>(translated_metadata.max_address - translated_metadata.min_address);  // PC range
   fde.PutULEB128Value(0);                                                                     // aug length
 
   fde.PutValueFront<uint32_t>(fde.size());                                                    // length
@@ -430,15 +432,19 @@ size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
 
 size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  if(unwind_data->metadata_list.empty()) {
+  if(unwind_data->translated_metadata_list.empty()) {
     return IP;
   }
   
   size_t code_size_before = module->instrumented_code_allocated;
 
   std::vector<size_t> fde_addresses;
-  for (auto &metadata: unwind_data->metadata_list) {
-    size_t fde_address = WriteFDE(module, metadata);
+  for (auto &translated_metadata: unwind_data->translated_metadata_list) {
+    if (!translated_metadata.Valid()) {
+      FATAL("The translated metadata list contains invalid metadata");
+    }
+
+    size_t fde_address = WriteFDE(module, translated_metadata);
     fde_addresses.push_back(fde_address);
   }
   
@@ -491,8 +497,8 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
 
   // we registered everything we have so far
-  unwind_data->metadata_list.clear();
-  unwind_data->last_lookup = UnwindDataMacOS::LastLookup();
+  unwind_data->translated_metadata_list.clear();
+  unwind_data->last_original_metadata_lookup = UnwindDataMacOS::Metadata();
   
   // give the target process the address to continue from
   return continue_address;

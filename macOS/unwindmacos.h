@@ -39,59 +39,44 @@ public:
 
   std::vector<size_t> cie_addresses;
 
-  void LookupEncoding(size_t original_address);
-  void AddMetadata(size_t original_address,
-                   size_t translated_address);
+  void LookupOriginalMetadata(size_t original_address);
+  void TranslateAndAddMetadata(size_t original_address,
+                               size_t translated_address);
 
   struct Metadata {
-    compact_unwind_encoding_t encoding;
+    uint32_t personality_index;
+    size_t min_address;
+    size_t max_address;
 
-    size_t translated_min_address;
-    size_t translated_max_address;
+    Metadata() {
+      personality_index = (uint32_t)(-1);
+      min_address = (size_t)(-1);
+      max_address = 0;
+    }
 
-    Metadata();
+    Metadata(uint32_t personality_index,
+               size_t min_address,
+               size_t max_address) {
+      this->personality_index = personality_index;
+      this->min_address = min_address;
+      this->max_address = max_address;
+    }
 
-    Metadata(compact_unwind_encoding_t encoding,
-             size_t translated_min_address,
-             size_t translated_max_address)
-    : encoding(encoding),
-      translated_min_address(translated_min_address),
-      translated_max_address(translated_max_address)
-    {}
+    inline bool Valid() {
+      return (personality_index != (uint32_t)(-1)
+              && min_address != 0 && min_address != (size_t)(-1)
+              && max_address != 0 && max_address != (size_t)(-1));
+    }
+
+    inline bool Miss(size_t address) {
+      return (address < min_address || max_address <= address);
+    }
   };
 
-  std::vector<Metadata> metadata_list;
+  Metadata last_original_metadata_lookup;
+  std::vector<Metadata> translated_metadata_list;
+
   std::map<size_t, compact_unwind_encoding_t> encoding_map;
-
-  struct LastLookup {
-    compact_unwind_encoding_t encoding;
-    size_t encoding_min_address;
-    size_t encoding_max_address;
-
-    LastLookup() {
-      encoding = 0;
-      encoding_min_address = (size_t)(-1);
-      encoding_max_address = 0;
-    }
-
-    void SetEncoding(compact_unwind_encoding_t encoding,
-                     size_t encoding_min_address,
-                     size_t encoding_max_address) {
-      this->encoding = encoding;
-      this->encoding_min_address = encoding_min_address;
-      this->encoding_max_address = encoding_max_address;
-    }
-
-    inline bool IsEncodingValid() {
-      return (encoding != 0
-              && encoding_min_address != 0 && encoding_min_address != (size_t)(-1)
-              && encoding_max_address != 0 && encoding_max_address != (size_t)(-1));
-    }
-
-    inline bool IsEncodingMiss(size_t original_address) {
-      return (original_address < encoding_min_address || encoding_max_address <= original_address);
-    }
-  } last_lookup;
   
   struct BreakpointData {
     SavedRegisters saved_registers;
