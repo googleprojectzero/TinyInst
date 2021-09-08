@@ -23,7 +23,7 @@ limitations under the License.
 #include <third_party/llvm/libunwind/dwarf2.h>
 #include <third_party/llvm/libunwind/CompactUnwinder.hpp>
 
-constexpr const unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
+constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
 void UnwindDataMacOS::LookupOriginalMetadata(size_t original_address) {
   if (encoding_map.empty()) {
