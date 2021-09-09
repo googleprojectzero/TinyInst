@@ -168,6 +168,8 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 `-patch_return_addresses` - replaces return address with the original value, causes returns to be instrumented using whatever `-indirect_instrumentation` method is specified
 
+`-generate_unwind` - [macOS only for now] Generates stack unwinding data for instrumented code (for faster C++ exception handling).
+
 `-persist_instrumentation_data` (default = true) Does not reinstrument module on module unloads / reloads. Only works if the module is loaded on the same address it was loaded before.
 
 `-instrument_cross_module_calls` (default=true) If multiple `-instrument_module` modules are specified and one calls into another, jump to instrumented code of the other module without causing an exception (which would cause slowdowns).
@@ -248,7 +250,7 @@ By default, when a call happens in instrumented code, the return address being w
 
 At this time, TinyInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note that, without additional instrumentation, this causes an exception on every return (causing a significant slowdown). However, with `-patch_return_addresses`, return instructions also get instrumented similarly to indirect jumps/calls. While this resolves returns happening within a module, note that all returns from a non-instrumented into an instrumented module will still cause exceptions.
 
-Since this is a fairly common case, more performant options for supporting exception handling will be investigated in the future. On Windows, for example, this can be accomplished using RtlAddFunctionTable / RtlAddGrowableFunctionTable / RtlInstallFunctionTableCallback APIs.
+On MacOS, `-generate_unwind` can be used instead of `-patch_return_addresses` to support exception handling. Unlike `-patch_return_addresses`, `-generate_unwind` has very little overhead. A similar options will also be implemented on Windows in the future.
 
 ## Performance tips
 
