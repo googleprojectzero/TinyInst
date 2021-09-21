@@ -1015,7 +1015,19 @@ void TinyInst::Init(int argc, char **argv) {
   trace_basic_blocks = GetBinaryOption("-trace_basic_blocks", argc, argv, false);
   trace_module_entries = GetBinaryOption("-trace_module_entries", argc, argv, false);
 
-  sp_offset = GetIntOption("-stack_offset", argc, argv, 0);
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64)
+  sp_offset = 0;
+#else
+  // According to System V AMD64 ABI:
+  // "For leaf-node functions a 128-byte space is stored just beneath
+  // the stack pointer of the function. The space is called the red zone.
+  // This zone will not be clobbered by any signal or interrupt handlers.
+  // Compilers can thus utilize this zone to save local variables."
+  // We set sp_offset to more than that just to be on the safe side.
+  sp_offset = 256;
+#endif
+  
+  sp_offset = GetIntOption("-stack_offset", argc, argv, sp_offset);
 
   std::list <char *> module_names;
   GetOptionAll("-instrument_module", argc, argv, &module_names);
