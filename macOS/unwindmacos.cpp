@@ -25,38 +25,34 @@ limitations under the License.
 
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
-void UnwindDataMacOS::LookupOriginalMetadata(size_t original_address) {
-  if (encoding_map.empty()) {
-    return;
+bool UnwindDataMacOS::LookupPersonality(size_t ip, size_t *personality) {
+  if((ip >= last_personality_lookup.min_address) &&
+     (ip < last_personality_lookup.max_address))
+  {
+    *personality = last_personality_lookup.personality;
+    return last_personality_lookup.found;
   }
 
-  if (last_original_metadata_lookup.Miss(original_address)) {
-    auto it = encoding_map.upper_bound(original_address);
-    if (it == encoding_map.begin()) {
-      last_original_metadata_lookup = Metadata(-1, 0, it->first - 1);
-    } else if (it == encoding_map.end()) { // Sentinel entry
-      last_original_metadata_lookup = Metadata(-1, prev(it)->first, -1);
-    } else {
-      compact_unwind_encoding_t encoding = prev(it)->second;
-      uint32_t personality_index = EXTRACT_BITS(encoding, UNWIND_PERSONALITY_MASK);
-      last_original_metadata_lookup = Metadata(personality_index, prev(it)->first, it->first - 1);
-    }
-  }
-}
-
-void UnwindDataMacOS::TranslateAndAddMetadata(size_t original_address, size_t translated_address) {
-  LookupOriginalMetadata(original_address);
-  if (!last_original_metadata_lookup.Valid()) {
-    return;
-  }
-
-  if (translated_metadata_list.empty()
-      || translated_metadata_list.back().personality_index != last_original_metadata_lookup.personality_index) {
-    translated_metadata_list.push_back(Metadata(last_original_metadata_lookup.personality_index,
-                                       translated_address, translated_address));
+  auto it = encoding_map.upper_bound(ip);
+  if (it == encoding_map.begin()) {
+    last_personality_lookup.Init(false, -1, 0, it->first - 1);
+  } else if (it == encoding_map.end()) { // Sentinel entry
+    last_personality_lookup.Init(false, -1, prev(it)->first, -1);
   } else {
-    translated_metadata_list.back().max_address = translated_address;
+    compact_unwind_encoding_t encoding = prev(it)->second;
+    // TODO(ifratric): If the encoding is a pointer to DWARF,
+    // do we need to extract the personality from there
+    // or is the personality index valid regardless?
+    uint32_t personality_index = EXTRACT_BITS(encoding, UNWIND_PERSONALITY_MASK);
+    if(personality_index >= personality_vector.size()) {
+      FATAL("personality_index out of bounds");
+    }
+    last_personality_lookup.Init(true, personality_vector[personality_index],
+                                 prev(it)->first, it->first - 1);
   }
+
+  *personality = last_personality_lookup.personality;
+  return last_personality_lookup.found;
 }
 
 UnwindDataMacOS::UnwindDataMacOS() {
@@ -64,7 +60,7 @@ UnwindDataMacOS::UnwindDataMacOS() {
   unwind_section_size = 0;
   unwind_section_buffer = NULL;
   unwind_section_header = NULL;
-  last_original_metadata_lookup = Metadata();
+  registered_fde = false;
 }
 
 UnwindDataMacOS::~UnwindDataMacOS() {
@@ -132,32 +128,8 @@ void UnwindGeneratorMacOS::OnModuleInstrumented(ModuleInfo* module) {
   module->unwind_data = unwind_data;
   SanityCheckUnwindHeader(module);
 
-  WriteCIEs(module);
+  ExtractPersonalityArray(module);
   ExtractFirstLevel(module);
-}
-
-void UnwindGeneratorMacOS::OnBasicBlockStart(ModuleInfo* module,
-                                             size_t original_address,
-                                             size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->TranslateAndAddMetadata(original_address,
-                                                                    translated_address);
-}
-
-void UnwindGeneratorMacOS::OnInstruction(ModuleInfo* module,
-                                         size_t original_address,
-                                         size_t translated_address) {
-  ((UnwindDataMacOS *)module->unwind_data)->TranslateAndAddMetadata(original_address,
-                                                                    translated_address);
-}
-
-void UnwindGeneratorMacOS::OnBasicBlockEnd(ModuleInfo* module,
-                                           size_t original_address,
-                                           size_t translated_address) {
-  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  if (!unwind_data->translated_metadata_list.empty()
-      && unwind_data->last_original_metadata_lookup.Valid()) {
-    unwind_data->translated_metadata_list.back().max_address = translated_address - 1;
-  }
 }
 
 void UnwindGeneratorMacOS::OnModuleUninstrumented(ModuleInfo *module) {
@@ -169,14 +141,22 @@ void UnwindGeneratorMacOS::OnReturnAddress(ModuleInfo *module,
                                            size_t original_address,
                                            size_t translated_address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  unwind_data->return_addresses[translated_address] = original_address;
+
+  size_t personality;
+  bool lookup_success = unwind_data->LookupPersonality(original_address - 1,
+                                                       &personality);
+  // if we are in an area that has no unwinding information,
+  // no need to store anything
+  if(!lookup_success) return;
+  
+  unwind_data->return_addresses[translated_address] =
+    {original_address, personality};
 }
 
 size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
                                       const char *augmentation,
                                       size_t personality_addr) {
-  personality_addr = GetCustomPersonality(module, personality_addr);
-  
+
   ByteStream cie;
   cie.PutValue<uint32_t>(0);                  // CIE id, must be zero
   cie.PutValue<uint8_t>(3);                   // version
@@ -197,32 +177,26 @@ size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
   return cie_address;
 }
 
-void UnwindGeneratorMacOS::WriteCIEs(ModuleInfo *module) {
+void UnwindGeneratorMacOS::ExtractPersonalityArray(ModuleInfo *module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
   unwind_info_section_header *unwind_section_header = unwind_data->unwind_section_header;
 
   size_t curr_personality_entry_addr = (size_t)unwind_data->unwind_section_buffer
                                        + unwind_section_header->personalityArraySectionOffset;
 
-  size_t code_size_before = module->instrumented_code_allocated;
-
-  unwind_data->cie_addresses.push_back(WriteCIE(module, "zP", 0));
+  unwind_data->personality_vector.clear();
+  unwind_data->personality_vector.push_back(0);
   for (int curr_cnt = 0; curr_cnt < unwind_section_header->personalityArrayCount; ++curr_cnt) {
     uint32_t personality_offset = *(uint32_t*)curr_personality_entry_addr;
     size_t personality_address;
     tinyinst_.RemoteRead((void*)((size_t)module->module_header + personality_offset),
                          &personality_address,
                          sizeof(size_t));
-    unwind_data->cie_addresses.push_back(WriteCIE(module, "zP", personality_address));
+    unwind_data->personality_vector.push_back(personality_address);
 
     curr_personality_entry_addr += sizeof(uint32_t);
   }
-
-  // compute how much data we wrote and commit it all to the target process
-  size_t code_size_after = module->instrumented_code_allocated;
-  tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
 }
-
 
 void UnwindGeneratorMacOS::ExtractFirstLevel(ModuleInfo *module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
@@ -383,48 +357,48 @@ void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
 bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  auto it_personality = unwind_data->personality_breakpoints.find((size_t)address);
-  if (it_personality != unwind_data->personality_breakpoints.end()) {
+  if ((size_t)address == unwind_data->personality_breakpoint) {
     size_t ip = tinyinst_.GetRegister(RAX);
 
     auto it = unwind_data->return_addresses.find(ip);
     if (it != unwind_data->return_addresses.end()) {
-      ip = it->second - 1;
+      ip = it->second.original_return_address - 1;
+      size_t personality = it->second.personality;
       tinyinst_.SetRegister(RAX, ip);
+      tinyinst_.SetRegister(RBX, personality);
+      // printf("Set personality to %zx\n", personality);
+    } else {
+      WARN("Unwinding lookup failed for IP %zx", ip);
     }
 
     return true;
   }
-
-  auto it = unwind_data->register_breakpoints.find((size_t)address);
-  if(it == unwind_data->register_breakpoints.end()) {
-    return false;
+  
+  if((size_t)address == unwind_data->register_breakpoint) {
+    tinyinst_.RestoreRegisters(&unwind_data->register_breakpoint_data.saved_registers);
+    tinyinst_.SetRegister(ARCH_PC, unwind_data->register_breakpoint_data.continue_ip);
+    // printf("Registration done\n");
+    return true;
   }
-
-  tinyinst_.RestoreRegisters(&it->second.saved_registers);
   
-  tinyinst_.SetRegister(ARCH_PC, it->second.continue_ip);
-  
-  // one-time breakpoint
-  unwind_data->register_breakpoints.erase(it);
-  
-  return true;
+  return false;
 }
 
 size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
-                                      UnwindDataMacOS::Metadata translated_metadata) {
+                                      size_t cie_address,
+                                      size_t min_address,
+                                      size_t max_address)
+{
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
   size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
 
-  size_t cie_address = unwind_data->cie_addresses[translated_metadata.personality_index];
-
   ByteStream fde;
-  fde.PutValue<uint32_t>(fde_address - cie_address + 4);                                      // CIE pointer
-  fde.PutValue<uint64_t>(translated_metadata.min_address);                                    // PC start
-  fde.PutValue<uint64_t>(translated_metadata.max_address - translated_metadata.min_address);  // PC range
-  fde.PutULEB128Value(0);                                                                     // aug length
+  fde.PutValue<uint32_t>(fde_address - cie_address + 4); // CIE pointer
+  fde.PutValue<uint64_t>(min_address);                   // PC start
+  fde.PutValue<uint64_t>(max_address - min_address);     // PC range
+  fde.PutULEB128Value(0);                                // aug length
 
-  fde.PutValueFront<uint32_t>(fde.size());                                                    // length
+  fde.PutValueFront<uint32_t>(fde.size());               // length
 
   tinyinst_.WriteCode(module, fde.data(), fde.size());
   return fde_address;
@@ -432,21 +406,26 @@ size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
 
 size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  if(unwind_data->translated_metadata_list.empty()) {
+  
+  if(unwind_data->registered_fde) {
     return IP;
+  }
+
+  if(!register_frame_addr || !unwind_getip || !unwind_setip) {
+    FATAL("Need to register unwinding data, but the addresses of libunwind functions are still unknown\n");
   }
   
   size_t code_size_before = module->instrumented_code_allocated;
 
+  size_t personality = WriteCustomPersonality(module);
+  size_t cie_address = WriteCIE(module, "zP", personality);
+  
   std::vector<size_t> fde_addresses;
-  for (auto &translated_metadata: unwind_data->translated_metadata_list) {
-    if (!translated_metadata.Valid()) {
-      FATAL("The translated metadata list contains invalid metadata");
-    }
-
-    size_t fde_address = WriteFDE(module, translated_metadata);
-    fde_addresses.push_back(fde_address);
-  }
+  size_t fde_address = WriteFDE(module, cie_address,
+                                (size_t)module->instrumented_code_remote,
+                                (size_t)module->instrumented_code_remote +
+                                module->instrumented_code_size);
+  fde_addresses.push_back(fde_address);
   
   size_t fde_array_start = tinyinst_.GetCurrentInstrumentedAddress(module);
   for(auto it = fde_addresses.begin(); it != fde_addresses.end(); it++) {
@@ -454,10 +433,6 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   }
   size_t fde_array_end = tinyinst_.GetCurrentInstrumentedAddress(module);
  
-  if(!register_frame_addr) {
-    FATAL("Need to register frames, but the address of __register_frame() is still unknown\n");
-  }
-  
   // address from which the target will continue execution
   // now it's the same as fde_array_end, but that might change in the future
   // if other stuff gets written before the next line
@@ -466,7 +441,9 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   size_t assembly_offset = module->instrumented_code_allocated;
   
   // write the assembly snippet that calls __register_frame
-  tinyinst_.WriteCode(module, (void*)register_assembly_x86, sizeof(register_assembly_x86));
+  tinyinst_.WriteCode(module,
+                      (void*)register_assembly_x86,
+                      sizeof(register_assembly_x86));
   
   // fill out the missing pieces in the assembly snippet
   tinyinst_.WritePointerAtOffset(module,
@@ -490,15 +467,15 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   // the breakpoint is handled by UnwindGeneratorMacOS::HandleBreakpoint
   SavedRegisters saved_registers;
   tinyinst_.SaveRegisters(&saved_registers);
-  unwind_data->register_breakpoints[breakpoint_address] = {saved_registers, IP};
+  unwind_data->register_breakpoint = breakpoint_address;
+  unwind_data->register_breakpoint_data = {saved_registers, IP};
   
   // compute how much data we wrote and commit it all to the target process
   size_t code_size_after = module->instrumented_code_allocated;
   tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
 
   // we registered everything we have so far
-  unwind_data->translated_metadata_list.clear();
-  unwind_data->last_original_metadata_lookup = UnwindDataMacOS::Metadata();
+  unwind_data->registered_fde = true;
   
   // give the target process the address to continue from
   return continue_address;
@@ -508,15 +485,8 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
 // doing so, they modify the IP value to point to the original code (instead
 // of the instrumented code). This way, the IP is found within the LSDA
 // table and the stack unwinding process succeeds.
-size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t original_personality) {
+size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-
-  auto iter = unwind_data->translated_personalities.find(original_personality);
-  if(iter != unwind_data->translated_personalities.end()) {
-    return iter->second;
-  }
-
-  size_t code_size_before = module->instrumented_code_allocated;
 
   size_t new_personality_addr = tinyinst_.GetCurrentInstrumentedAddress(module);
   
@@ -536,14 +506,14 @@ size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t ori
     0x51, // push rcx
     0x41, 0x50, // push r8
     0x41, 0x51,  // push r9
-    0x48, 0x8B, 0x1D, 0x13, 0x00, 0x00, 0x00, // mov rbx, [rip + offset]; rbx becomes the original personality
-    0x4C, 0x8B, 0x25, 0x14, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes _Unwind_GetIP
-    0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
-    0xE9, 0x18, 0x00, 0x00, 0x00 // jmp 0x18
+    // set up registers we'll need
+    0x48, 0x31, 0xDB, // xor rbx, rbx
+    0x4C, 0x8B, 0x25, 0x0C, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes _Unwind_GetIP
+    0x4C, 0x8B, 0x2D, 0x0D, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
+    0xE9, 0x10, 0x00, 0x00, 0x00 // jmp 0x18
   };
   
   tinyinst_.WriteCode(module, assembly_part1, sizeof(assembly_part1));
-  tinyinst_.WritePointer(module, original_personality);
   tinyinst_.WritePointer(module, unwind_getip);
   tinyinst_.WritePointer(module, unwind_setip);
 
@@ -559,7 +529,7 @@ size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t ori
 
   size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
   tinyinst_.assembler_->Breakpoint(module);
-  unwind_data->personality_breakpoints.insert(breakpoint_address);
+  unwind_data->personality_breakpoint = breakpoint_address;
 
   unsigned char assembly_part3[] = {
     // _Unwind_SetIP(context, modified_ip)
@@ -593,12 +563,6 @@ size_t UnwindGeneratorMacOS::GetCustomPersonality(ModuleInfo* module, size_t ori
   };
 
   tinyinst_.WriteCode(module, assembly_part3, sizeof(assembly_part3));
-  
-  // compute how much data we wrote and commit it all to the target process
-  size_t code_size_after = module->instrumented_code_allocated;
-  tinyinst_.CommitCode(module, code_size_before, (code_size_after - code_size_before));
-  
-  unwind_data->translated_personalities[original_personality] = new_personality_addr;
-  
+
   return new_personality_addr;
 }

@@ -19,6 +19,7 @@ limitations under the License.
 
 #include <vector>
 #include <map>
+#include <unordered_map>
 
 #include <stdio.h>
 #include "unwind.h"
@@ -37,44 +38,38 @@ public:
   void *unwind_section_buffer;
   unwind_info_section_header *unwind_section_header;
 
-  std::vector<size_t> cie_addresses;
+  std::vector<size_t> personality_vector;
+  
+  bool registered_fde;
 
-  void LookupOriginalMetadata(size_t original_address);
-  void TranslateAndAddMetadata(size_t original_address,
-                               size_t translated_address);
+  bool LookupPersonality(size_t ip, size_t *personality);
 
-  struct Metadata {
-    uint32_t personality_index;
-    size_t min_address;
-    size_t max_address;
-
-    Metadata() {
-      personality_index = (uint32_t)(-1);
-      min_address = (size_t)(-1);
+  struct PersonalityLookup {
+    PersonalityLookup() {
+      found = false;
+      personality = (size_t)(-1);
+      min_address = 0;
       max_address = 0;
     }
-
-    Metadata(uint32_t personality_index,
-               size_t min_address,
-               size_t max_address) {
-      this->personality_index = personality_index;
+ 
+    void Init(bool found,
+              size_t personality,
+              size_t min_address,
+              size_t max_address)
+    {
+      this->found = found;
+      this->personality = personality;
       this->min_address = min_address;
       this->max_address = max_address;
     }
 
-    inline bool Valid() {
-      return (personality_index != (uint32_t)(-1)
-              && min_address != 0 && min_address != (size_t)(-1)
-              && max_address != 0 && max_address != (size_t)(-1));
-    }
-
-    inline bool Miss(size_t address) {
-      return (address < min_address || max_address <= address);
-    }
+    bool found;
+    size_t personality;
+    size_t min_address;
+    size_t max_address;
   };
-
-  Metadata last_original_metadata_lookup;
-  std::vector<Metadata> translated_metadata_list;
+  
+  PersonalityLookup last_personality_lookup;
 
   std::map<size_t, compact_unwind_encoding_t> encoding_map;
   
@@ -82,16 +77,20 @@ public:
     SavedRegisters saved_registers;
     size_t continue_ip;
   };
-  std::unordered_map<size_t, BreakpointData> register_breakpoints;
+  
+  size_t register_breakpoint;
+  BreakpointData register_breakpoint_data;
 
-  // Maps the addresses of the original personality routines (the keys)
-  // to the addresses of our custom personality routines (the values). 
-  std::unordered_map<size_t, size_t> translated_personalities;
-  std::unordered_set<size_t> personality_breakpoints;
+  size_t personality_breakpoint;
 
+  struct ReturnAddressInfo {
+    size_t original_return_address;
+    size_t personality;
+  };
+  
   // Maps the return addresses in the instrumented code (the keys)
   // to the return addresses in the original code (the values).
-  std::map<size_t, size_t> return_addresses;
+  std::unordered_map<size_t, ReturnAddressInfo> return_addresses;
 };
 
 class ByteStream {
@@ -138,7 +137,10 @@ public:
 
 class UnwindGeneratorMacOS : public UnwindGenerator {
 public:
-  UnwindGeneratorMacOS(TinyInst& tinyinst) : UnwindGenerator(tinyinst), register_frame_addr(0) {}
+  UnwindGeneratorMacOS(TinyInst& tinyinst) : UnwindGenerator(tinyinst),
+                                             register_frame_addr(0),
+                                             unwind_getip(0),
+                                             unwind_setip(0) {}
   ~UnwindGeneratorMacOS() = default;
 
   void OnModuleInstrumented(ModuleInfo* module) override;
@@ -146,18 +148,6 @@ public:
 
   size_t MaybeRedirectExecution(ModuleInfo* module, size_t IP) override;
 
-  void OnBasicBlockStart(ModuleInfo* module,
-                         size_t original_address,
-                         size_t translated_address) override;
-
-  void OnInstruction(ModuleInfo* module,
-                     size_t original_address,
-                     size_t translated_address) override;
-
-  void OnBasicBlockEnd(ModuleInfo* module,
-                       size_t original_address,
-                       size_t translated_address) override;
-  
   void OnModuleLoaded(void *module, char *module_name) override;
 
   void OnReturnAddress(ModuleInfo *module,
@@ -185,11 +175,17 @@ private:
                                                size_t second_level_page_addr,
                                                uint32_t curr_entry_encoding_index);
 
-  size_t WriteCIE(ModuleInfo *module, const char *augmentation, size_t personality_addr);
-  void WriteCIEs(ModuleInfo *module);
-  size_t WriteFDE(ModuleInfo *module, UnwindDataMacOS::Metadata metadata);
+  void ExtractPersonalityArray(ModuleInfo *module);
+
+  size_t WriteCIE(ModuleInfo *module,
+                  const char *augmentation,
+                  size_t personality_addr);
+  size_t WriteFDE(ModuleInfo *module,
+                  size_t cie_address,
+                  size_t min_address,
+                  size_t max_address);
   
-  size_t GetCustomPersonality(ModuleInfo* module, size_t original_personality);
+  size_t WriteCustomPersonality(ModuleInfo* module);
   
   size_t register_frame_addr;
   size_t unwind_getip;
