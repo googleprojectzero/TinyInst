@@ -29,6 +29,8 @@ class UnwindGenerator {
 public:
   UnwindGenerator(TinyInst& tinyinst) : tinyinst_(tinyinst) {}
   virtual ~UnwindGenerator() = default;
+  
+  virtual void Init(int argc, char **argv) {}
 
   virtual void OnModuleInstrumented(ModuleInfo* module) { }
   virtual void OnModuleUninstrumented(ModuleInfo* module) { }

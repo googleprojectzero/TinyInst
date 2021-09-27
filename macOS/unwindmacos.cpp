@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 #include "unwindmacos.h"
+#include "common.h"
 
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
@@ -23,7 +24,18 @@ limitations under the License.
 #include <third_party/llvm/libunwind/dwarf2.h>
 #include <third_party/llvm/libunwind/CompactUnwinder.hpp>
 
+#define LOOKUP_TABLE_CHUNK_SIZE (1024*1024)
+#define LOOKUP_TABLE_ELEMENT_SIZE (4 * sizeof(void *))
+#define LOOKUP_TABLE_BUCKETS 16384 //needs to be a power of two
+
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
+
+void UnwindGeneratorMacOS::Init(int argc, char **argv) {
+  in_process_lookup = false;
+  
+  in_process_lookup = GetBinaryOption("-unwind_in_process_lookup",
+                                      argc, argv, in_process_lookup);
+}
 
 bool UnwindDataMacOS::LookupPersonality(size_t ip, size_t *personality) {
   if((ip >= last_personality_lookup.min_address) &&
@@ -357,21 +369,28 @@ void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
 bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  if ((size_t)address == unwind_data->personality_breakpoint) {
-    size_t ip = tinyinst_.GetRegister(RAX);
-
-    auto it = unwind_data->return_addresses.find(ip);
-    if (it != unwind_data->return_addresses.end()) {
-      ip = it->second.original_return_address - 1;
-      size_t personality = it->second.personality;
-      tinyinst_.SetRegister(RAX, ip);
-      tinyinst_.SetRegister(RBX, personality);
-      // printf("Set personality to %zx\n", personality);
-    } else {
+  if(in_process_lookup) {
+    if((size_t)address == unwind_data->personality_breakpoint) {
+      size_t ip = tinyinst_.GetRegister(RAX);
       WARN("Unwinding lookup failed for IP %zx", ip);
+      return true;
     }
+  } else {
+    if((size_t)address == unwind_data->personality_breakpoint) {
+      size_t ip = tinyinst_.GetRegister(RAX);
 
-    return true;
+      auto it = unwind_data->return_addresses.find(ip);
+      if (it != unwind_data->return_addresses.end()) {
+        ip = it->second.original_return_address - 1;
+        size_t personality = it->second.personality;
+        tinyinst_.SetRegister(RAX, ip);
+        tinyinst_.SetRegister(RBX, personality);
+        // printf("Set personality to %zx\n", personality);
+      } else {
+        WARN("Unwinding lookup failed for IP %zx", ip);
+      }
+      return true;
+    }
   }
   
   if((size_t)address == unwind_data->register_breakpoint) {
@@ -406,6 +425,8 @@ size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
 
 size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  
+  if(in_process_lookup) WriteLookupTable(module);
   
   if(unwind_data->registered_fde) {
     return IP;
@@ -487,6 +508,10 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
 // table and the stack unwinding process succeeds.
 size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+  
+  if(in_process_lookup && !unwind_data->lookup_table.header_remote) {
+    FATAL("Unwind lookup table not initialized");
+  }
 
   size_t new_personality_addr = tinyinst_.GetCurrentInstrumentedAddress(module);
   
@@ -499,6 +524,8 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x41, 0x54, // push r12
     0x41, 0x55, // push r13
     0x41, 0x56, // push r14
+    0x41, 0x57, // push r15
+    0x41, 0x57, // push r15, twice for alignment
     // push personality parameters on stack
     0x57, // push rdi
     0x56, // push rsi
@@ -508,12 +535,14 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x41, 0x51,  // push r9
     // set up registers we'll need
     0x48, 0x31, 0xDB, // xor rbx, rbx
-    0x4C, 0x8B, 0x25, 0x0C, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes _Unwind_GetIP
-    0x4C, 0x8B, 0x2D, 0x0D, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
-    0xE9, 0x10, 0x00, 0x00, 0x00 // jmp 0x18
+    0x4C, 0x8B, 0x3D, 0x13, 0x00, 0x00, 0x00, // mov r15, [rip + offset]; r15 becomes hashtable ptr
+    0x4C, 0x8B, 0x25, 0x14, 0x00, 0x00, 0x00, // mov r12, [rip + offset]; r12 becomes _Unwind_GetIP
+    0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
+    0xE9, 0x18, 0x00, 0x00, 0x00 // jmp 0x18
   };
   
   tinyinst_.WriteCode(module, assembly_part1, sizeof(assembly_part1));
+  tinyinst_.WritePointer(module, unwind_data->lookup_table.header_remote);
   tinyinst_.WritePointer(module, unwind_getip);
   tinyinst_.WritePointer(module, unwind_setip);
 
@@ -527,9 +556,13 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
   
   tinyinst_.WriteCode(module, assembly_part2, sizeof(assembly_part2));
 
-  size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-  tinyinst_.assembler_->Breakpoint(module);
-  unwind_data->personality_breakpoint = breakpoint_address;
+  if(!in_process_lookup) {
+    size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+    tinyinst_.assembler_->Breakpoint(module);
+    unwind_data->personality_breakpoint = breakpoint_address;
+  } else {
+    WritePersonalityLookup(module);
+  }
 
   unsigned char assembly_part3[] = {
     // _Unwind_SetIP(context, modified_ip)
@@ -552,6 +585,8 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x48, 0xC7, 0xC0, 0x08, 0x00, 0x00, 0x00, // mov rax,8 (_URC_CONTINUE_UNWIND )
     // end:
     //restore registers
+    0x41, 0x5F, // pop r15
+    0x41, 0x5F, // pop r15
     0x41, 0x5E, // pop r14
     0x41, 0x5D, // pop r13
     0x41, 0x5C, // pop r12
@@ -565,4 +600,124 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
   tinyinst_.WriteCode(module, assembly_part3, sizeof(assembly_part3));
 
   return new_personality_addr;
+}
+
+void UnwindGeneratorMacOS::WritePersonalityLookup(ModuleInfo* module) {
+  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
+
+  unsigned char x64_assembly[] = {
+    0x48, 0x89, 0xC1, //mov rcx, rax
+    0x48, 0x81, 0xE1, 0xAA, 0xAA, 0xAA, 0x0A, // and rcx,0xaaaaaaa, to be replaced
+    0x4D, 0x8B, 0x3C, 0xCF, // mov r15,QWORD PTR [r15+rcx*8]
+    // loop_start:
+    0x4D, 0x85, 0xFF, // test r15,r15
+    0x74, 0x15, //je not_found
+    0x49, 0x3B, 0x07, // cmp rax,QWORD PTR [r15]
+    0x74, 0x06, // je found
+    0x4D, 0x8B, 0x7F, 0x18, // mov r15,QWORD PTR [r15+0x18]
+    0xEB, 0xF0, // jmp loop_start
+    // found:
+    0x49, 0x8B, 0x47, 0x08, // mov rax, QWORD PTR [r15+0x8]
+    0x49, 0x8B, 0x5F, 0x10, // mov rbx, QWORD PTR [r15+0x10]
+    0xEB, 0x01, // jmp end
+    // not_found:
+    0xCC // int3
+  };
+  size_t mask_offset = 6;
+  *(uint32_t *)(&x64_assembly[mask_offset]) = (LOOKUP_TABLE_BUCKETS - 1);
+  
+  tinyinst_.WriteCode(module, x64_assembly, sizeof(x64_assembly));
+  size_t breakpoint_address = (size_t)tinyinst_.GetCurrentInstrumentedAddress(module) - 1;
+  unwind_data->personality_breakpoint = breakpoint_address;
+}
+
+UnwindDataMacOS::LookupTable::~LookupTable() {
+  if(header_local) free(header_local);
+}
+
+size_t UnwindGeneratorMacOS::AllocateLookupTableChunk() {
+  size_t ret = (size_t)tinyinst_.RemoteAllocate(LOOKUP_TABLE_CHUNK_SIZE);
+  if(!ret) {
+    FATAL("Error allocating unwinding lookup table. Please run with -unwind_in_process_lookup=0");
+  }
+  return ret;
+}
+
+void UnwindGeneratorMacOS::WriteLookupTable(ModuleInfo* module) {
+  UnwindDataMacOS *data = (UnwindDataMacOS *)module->unwind_data;
+  UnwindDataMacOS::LookupTable *lookup_table = &data->lookup_table;
+
+  if(!in_process_lookup) return;
+
+  // init if needed
+  if(!lookup_table->header_remote) {
+    lookup_table->header_remote = AllocateLookupTableChunk();
+    lookup_table->header_local = (size_t *)malloc(LOOKUP_TABLE_BUCKETS * sizeof(size_t));
+    memset(lookup_table->header_local, 0, LOOKUP_TABLE_BUCKETS * sizeof(size_t));
+    lookup_table->buffer_end = lookup_table->header_remote + LOOKUP_TABLE_CHUNK_SIZE;
+    lookup_table->buffer_cur = lookup_table->header_remote + LOOKUP_TABLE_BUCKETS * sizeof(size_t);
+  }
+
+  // nothing to write
+  if(data->return_addresses.empty()) return;
+  
+  size_t space_left = lookup_table->buffer_end - lookup_table->buffer_cur;
+  if(space_left < LOOKUP_TABLE_ELEMENT_SIZE) {
+    lookup_table->buffer_cur = AllocateLookupTableChunk();
+    lookup_table->buffer_end = lookup_table->buffer_cur + LOOKUP_TABLE_CHUNK_SIZE;
+    space_left = LOOKUP_TABLE_CHUNK_SIZE;
+  }
+  
+  unsigned char *remote_buf = (unsigned char *)lookup_table->buffer_cur;
+  unsigned char *local_buf = (unsigned char *)malloc(space_left);
+  unsigned char *local_buf_cur = local_buf;
+  
+  for(auto iter = data->return_addresses.begin();
+      iter != data->return_addresses.end(); iter++)
+  {
+    if(space_left < LOOKUP_TABLE_ELEMENT_SIZE) {
+      tinyinst_.RemoteWrite((void *)remote_buf,
+                            (void *)local_buf,
+                            (size_t)(local_buf_cur - local_buf));
+      lookup_table->buffer_cur = AllocateLookupTableChunk();
+      lookup_table->buffer_end = lookup_table->buffer_cur + LOOKUP_TABLE_CHUNK_SIZE;
+      space_left = LOOKUP_TABLE_CHUNK_SIZE;
+      free(local_buf);
+      remote_buf = (unsigned char *)lookup_table->buffer_cur;
+      local_buf = (unsigned char *)malloc(space_left);
+      local_buf_cur = local_buf;
+    }
+    
+    size_t instrumented_ip = iter->first;
+    size_t original_ip = iter->second.original_return_address - 1;
+    size_t personality = iter->second.personality;
+    size_t hash_bucket = instrumented_ip % LOOKUP_TABLE_BUCKETS;
+    size_t previous_head = lookup_table->header_local[hash_bucket];
+    
+    size_t new_head = lookup_table->buffer_cur;
+    lookup_table->header_local[hash_bucket] = new_head;
+    
+    // printf("%zx -> %zx\n", instrumented_ip, original_ip);
+    
+    *((size_t *)local_buf_cur) = instrumented_ip;
+    *(((size_t *)local_buf_cur) + 1) = original_ip;
+    *(((size_t *)local_buf_cur) + 2) = personality;
+    *(((size_t *)local_buf_cur) + 3) = previous_head;
+    local_buf_cur += LOOKUP_TABLE_ELEMENT_SIZE;
+    lookup_table->buffer_cur += LOOKUP_TABLE_ELEMENT_SIZE;
+    space_left -= LOOKUP_TABLE_ELEMENT_SIZE;
+  }
+  
+  // header
+  tinyinst_.RemoteWrite((void *)lookup_table->header_remote,
+                        (void *)lookup_table->header_local,
+                        LOOKUP_TABLE_BUCKETS * sizeof(size_t));
+  
+  tinyinst_.RemoteWrite((void *)remote_buf,
+                        (void *)local_buf,
+                        (size_t)(local_buf_cur - local_buf));
+  
+  // printf("Wrote %zd lookup table entries\n", data->return_addresses.size());
+  data->return_addresses.clear();
+  free(local_buf);
 }

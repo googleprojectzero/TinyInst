@@ -91,6 +91,25 @@ public:
   // Maps the return addresses in the instrumented code (the keys)
   // to the return addresses in the original code (the values).
   std::unordered_map<size_t, ReturnAddressInfo> return_addresses;
+  
+  class LookupTable {
+  public:
+    LookupTable() {
+      header_local = NULL;
+      header_remote = 0;
+      buffer_cur = 0;
+      buffer_end = 0;
+    }
+    
+    ~LookupTable();
+
+    size_t *header_local;
+    size_t header_remote;
+    size_t buffer_cur;
+    size_t buffer_end;
+  };
+  
+  LookupTable lookup_table;
 };
 
 class ByteStream {
@@ -142,6 +161,8 @@ public:
                                              unwind_getip(0),
                                              unwind_setip(0) {}
   ~UnwindGeneratorMacOS() = default;
+  
+  void Init(int argc, char **argv) override;
 
   void OnModuleInstrumented(ModuleInfo* module) override;
   void OnModuleUninstrumented(ModuleInfo* module) override;
@@ -186,10 +207,16 @@ private:
                   size_t max_address);
   
   size_t WriteCustomPersonality(ModuleInfo* module);
+  void WritePersonalityLookup(ModuleInfo* module);
+
+  size_t AllocateLookupTableChunk();
+  void WriteLookupTable(ModuleInfo* module);
   
   size_t register_frame_addr;
   size_t unwind_getip;
   size_t unwind_setip;
+  
+  bool in_process_lookup;
 
   static constexpr unsigned char register_assembly_x86[] = {
     // save registers

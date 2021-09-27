@@ -246,6 +246,8 @@ protected:
                            size_t size,
                            MemoryProtection protection,
 			   bool use_shared_memory = false);
+  
+  void *RemoteAllocate(size_t size);
 
   void ExtractCodeRanges(void *base_address,
                          size_t min_address,

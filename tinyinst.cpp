@@ -1065,4 +1065,5 @@ void TinyInst::Init(int argc, char **argv) {
     unwind_generator = new UnwindGenerator(*this);
   #endif
   }
+  unwind_generator->Init(argc, argv);
 }

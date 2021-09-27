@@ -592,6 +592,21 @@ void *Debugger::RemoteAllocateAfter(uint64_t min_address,
   return NULL;
 }
 
+void *Debugger::RemoteAllocate(size_t size) {
+  kern_return_t krt;
+  void *alloc_address = 0;
+  krt = mach_vm_allocate(mach_target->Task(),
+                        (mach_vm_address_t*)&alloc_address,
+                        size,
+                        VM_FLAGS_ANYWHERE);
+  
+  if (krt != KERN_SUCCESS) {
+    return NULL;
+  }
+
+  return alloc_address;
+}
+
 kern_return_t Debugger::RemoteAllocateAt(void *ret_address, int size) {
   kern_return_t krt;
   bool retried = false;
@@ -618,7 +633,6 @@ retry_label:
 
   return krt;
 }
-
 
 void Debugger::DeleteBreakpoints() {
   for (auto iter = breakpoints.begin(); iter != breakpoints.end(); iter++) {
