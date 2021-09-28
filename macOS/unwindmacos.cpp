@@ -31,7 +31,7 @@ limitations under the License.
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
 void UnwindGeneratorMacOS::Init(int argc, char **argv) {
-  in_process_lookup = false;
+  in_process_lookup = true;
   
   in_process_lookup = GetBinaryOption("-unwind_in_process_lookup",
                                       argc, argv, in_process_lookup);
