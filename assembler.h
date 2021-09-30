@@ -83,4 +83,4 @@ class Assembler {
   TinyInst &tinyinst_;
 };
 
-#endif
+#endif  // ASSEMBLER_H

@@ -25,6 +25,8 @@ limitations under the License.
 #include <vector>
 #include <mutex>
 
+#include "common.h"
+
 
 #ifdef ARM64
 #include "arch/arm64/reg.h"
@@ -181,13 +183,6 @@ protected:
     RETADDR_STACK_OVERWRITE,
     RETADDR_BREAKPOINT
   };
-
-  struct AddressRange {
-    size_t from;
-    size_t to;
-    char *data;
-  };
-
 
   virtual void OnModuleLoaded(void *module, char *module_name);
   virtual void OnModuleUnloaded(void *module) {}

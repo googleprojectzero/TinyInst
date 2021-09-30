@@ -685,16 +685,16 @@ void Debugger::HandleTargetReachedInternal() {
     }
   }
 
+  if (!target_reached) {
+    target_reached = true;
+    OnTargetMethodReached();
+  }
+
   if (target_end_detection == RETADDR_STACK_OVERWRITE) {
     size_t return_address = PERSIST_END_EXCEPTION;
     RemoteWrite(saved_sp, &return_address, child_ptr_size);
   } else if (target_end_detection == RETADDR_BREAKPOINT) {
     AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
-  }
-
-  if (!target_reached) {
-    target_reached = true;
-    OnTargetMethodReached();
   }
 }
 

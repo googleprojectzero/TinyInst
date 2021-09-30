@@ -53,6 +53,13 @@ typedef struct xed_decoded_inst_s xed_decoded_inst_t;
 
 class ModuleInfo;
 
+
+enum InstructionResult {
+  INST_HANDLED,
+  INST_NOTHANDLED,
+  INST_STOPBB
+};
+
 class TinyInst : public Debugger {
 public:
   virtual void Init(int argc, char **argv) override;
@@ -72,12 +79,6 @@ protected:
     II_GLOBAL,
     II_LOCAL,
     II_AUTO
-  };
-
-  enum InstructionResult {
-    INST_HANDLED,
-    INST_NOTHANDLED,
-    INST_STOPBB
   };
 
   std::list<ModuleInfo *> instrumented_modules;
@@ -214,7 +215,7 @@ private:
   bool instrumentation_disabled;
   bool instrument_modules_on_load;
 
-  // friend class Asssembler;
+  friend class Asssembler;
   friend class X86Assembler;
   friend class Arm64Assembler;
   friend class ModuleInfo;
@@ -246,7 +247,7 @@ class ModuleInfo {
   size_t code_size;
   bool loaded;
   bool instrumented;
-  std::list<TinyInst::AddressRange> executable_ranges;
+  std::list<AddressRange> executable_ranges;
 
   size_t instrumented_code_size;
   size_t instrumented_code_allocated;

@@ -19,9 +19,11 @@ limitations under the License.
 
 #include <string>
 #include <list>
-#include "windows.h"
 
+#include "common.h"
+#include "windows.h"
 #include "arch/x86/reg.h"
+
 
 enum DebuggerStatus {
   DEBUGGER_NONE,
@@ -76,12 +78,6 @@ protected:
     READWRITE,
     READEXECUTE,
     READWRITEEXECUTE
-  };
-
-  struct AddressRange {
-    size_t from;
-    size_t to;
-    char *data;
   };
 
   virtual void OnModuleLoaded(void *module, char *module_name);

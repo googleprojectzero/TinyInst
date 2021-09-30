@@ -655,7 +655,7 @@ ModuleInfo *TinyInst::GetModule(size_t address) {
 }
 
 // gets a memory region corresponding to address
-TinyInst::AddressRange *TinyInst::GetRegion(ModuleInfo *module, size_t address) {
+AddressRange *TinyInst::GetRegion(ModuleInfo *module, size_t address) {
   for (auto iter = module->executable_ranges.begin();
        iter != module->executable_ranges.end(); iter++)
   {
