@@ -22,8 +22,6 @@ extern "C" {
 }
 
 #include "assembler.h"
-
-
 #include "tinyinst.h"
 
 class X86Assembler : public Assembler {

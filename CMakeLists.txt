@@ -44,6 +44,7 @@ else()
       arch/x86/x86_helpers.cpp
       arch/x86/x86_assembler.h
       arch/x86/x86_assembler.cpp
+      arch/x86/x86_litecov.cpp
   )
 endif()
 
