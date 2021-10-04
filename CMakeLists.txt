@@ -99,6 +99,8 @@ elseif (APPLE)
        macOS/mig_server.c
        macOS/unwindmacos.cpp
        macOS/unwindmacos.h
+       macOS/dyld_cache_map_parser.cpp
+       macOS/dyld_cache_map_parser.h
   )
 endif()
 

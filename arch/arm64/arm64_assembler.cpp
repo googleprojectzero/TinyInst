@@ -551,12 +551,12 @@ void Arm64Assembler::FixInstructionAndOutput(
       break;
     }
 
-    case arm64::kLdrsLiteral: {
+    case arm64::Opcode::kLdrsLiteral: {
       FATAL("arm64::kLdrsLiteral");
       break;
     }
 
-    case arm64::kPrfmLiteral:
+    case arm64::Opcode::kPrfmLiteral:
       // ¯\_(ツ)_/¯
       tinyinst_.WriteCode(module, &NOP, sizeof(NOP));
       break;

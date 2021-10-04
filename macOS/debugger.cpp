@@ -794,10 +794,32 @@ void Debugger::ExtractCodeRanges(void *base_address,
         continue;
       }
 
+#ifdef ARM64
+      if (strcmp(segment_cmd->segname, "__TEXT") == 0) {
+        mach_vm_address_t segment_start_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide;
+        mach_vm_address_t segment_end_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide + segment_cmd->vmsize;
+        AddressRange arm_ar;
+        arm_ar.from = segment_start_addr;
+        arm_ar.to = segment_end_addr;
+        size_t range_size = arm_ar.to - arm_ar.from;
+        arm_ar.data = (char *)malloc(range_size);
+        RemoteRead((void*)arm_ar.from, arm_ar.data, range_size);
+
+        ExtractSegmentCodeRanges(segment_start_addr, segment_end_addr, executable_ranges, code_size);
+        for(const auto& er: *executable_ranges) { 
+          free(er.data);
+        }
+        executable_ranges->clear();
+        executable_ranges->push_back(arm_ar);
+        *code_size = range_size;
+        break;
+      }
+#else
       mach_vm_address_t segment_start_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide;
       mach_vm_address_t segment_end_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide + segment_cmd->vmsize;
 
       ExtractSegmentCodeRanges(segment_start_addr, segment_end_addr, executable_ranges, code_size);
+#endif
     }
 
     load_cmd_addr += load_cmd->cmdsize;
@@ -1445,7 +1467,7 @@ void Debugger::PrintContext() {
     printf("x20: %16llx x21: %16llx x22: %16llx x23: %16llx\n", state.__x[20], state.__x[21], state.__x[22], state.__x[23]);
     printf("x24: %16llx x25: %16llx x26: %16llx x27: %16llx\n", state.__x[24], state.__x[25], state.__x[26], state.__x[27]);
     printf("x28: %16llx\n", state.__x[28]);
-    printf(" sp: %16llx  fp: %16llx  lr: %16llx cpsr: %8x\n", state.__sp, state.__fp, state.__lr, state.__cpsr);
+    printf(" sp: %16llx  fp: %16llx  lr: %16llx cpsr: %8x\n\n", state.__sp, state.__fp, state.__lr, state.__cpsr);
     printf("stack:\n");
     uint64_t stack[100];
     mach_target->ReadMemory(state.__sp, sizeof(stack), stack);

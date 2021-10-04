@@ -29,6 +29,10 @@ limitations under the License.
 #else
   #include "arch/x86/x86_assembler.h"
 #endif
+#if defined __APPLE__ && defined ARM64
+  #include <set>
+  #include "macOS/dyld_cache_map_parser.h"
+#endif
 
 ModuleInfo::ModuleInfo() {
   module_name[0] = 0;
@@ -698,10 +702,7 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return;
 
-  // clear known entries on crash
-  module->entry_offsets.clear();
-
-  printf("Exception in instrumented module %s\n", module->module_name.c_str());
+  printf("Exception in instrumented module %s %p\n", module->module_name.c_str(), module->module_header);
   size_t offset = (size_t)address - (size_t)module->instrumented_code_remote;
 
   printf("Code before:\n");
@@ -1124,9 +1125,21 @@ void TinyInst::Init(int argc, char **argv) {
 
   std::list <char *> module_names;
   GetOptionAll("-instrument_module", argc, argv, &module_names);
-  for (auto iter = module_names.begin(); iter != module_names.end(); iter++) {
+#if defined __APPLE__ && defined ARM64
+  std::set <std::string> uniq_mod_names;
+  std::map<std::string, std::vector<std::string>> mod_grp = 
+    parse_dyld_map_file("/System/Library/dyld/dyld_shared_cache_arm64e.map");
+  uniq_mod_names.insert(module_names.begin(), module_names.end());
+  module_names.clear();
+
+  for(const auto& mod_name: uniq_mod_names) {
+    module_names.emplace_back((char*)mod_name.c_str());
+    SAY("-- %s\n", mod_name.c_str());
+  }
+#endif
+  for (const auto module_name: module_names) {
     ModuleInfo *new_module = new ModuleInfo();
-    new_module->module_name = *iter;
+    new_module->module_name = module_name;
     instrumented_modules.push_back(new_module);
   }
 
