@@ -481,7 +481,11 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   //try after first
   min_address = region_max;
   max_address = (UINT64_MAX - region_min < 0x80000000) ? UINT64_MAX : region_min + 0x80000000;
+#ifdef ARM64
+  void *ret_address = RemoteAllocate(size, protection);
+#else
   void *ret_address = RemoteAllocateAfter(min_address, max_address, size, protection);
+#endif
   if (ret_address != NULL) {
     if (use_shared_memory)
       MakeSharedMemory((mach_vm_address_t)ret_address, size, protection);
@@ -503,6 +507,24 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   if (use_shared_memory)
     MakeSharedMemory((mach_vm_address_t)ret_address, size, protection);
   return ret_address;
+}
+
+void *Debugger::RemoteAllocate(size_t size, MemoryProtection protection) {
+  mach_vm_address_t alloc_address = 0;
+  vm_prot_t protection_flags = MacOSProtectionFlags(protection);
+
+  kern_return_t krt = mach_vm_allocate(mach_target->Task(),
+                                       (mach_vm_address_t*)&alloc_address,
+                                       size,
+                                       VM_FLAGS_ANYWHERE);
+
+  if (krt != KERN_SUCCESS) {
+    FATAL("Unable to allocate memory region starting @ %p, size 0x%lx\n",
+            (void *)alloc_address, size);
+  }
+  RemoteProtect((void *)alloc_address, size, protection_flags);
+
+  return (void *)alloc_address;
 }
 
 void *Debugger::RemoteAllocateBefore(uint64_t min_address,

@@ -20,6 +20,8 @@ limitations under the License.
 #define ARCH_SP SP
 #define ARCH_PC PC
 #define ARCH_RETURN_VALUE_REGISTER X0
+#define ARCH_IP_VALUE_REGISTER X0
+#define ARCH_PERSONALITY_VALUE_REGISTER X1
 #define ORIG_ADDR_REG X0
 
 enum Register {

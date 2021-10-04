@@ -116,11 +116,13 @@ void LiteCov::ClearCoverageInstrumentation(ModuleInfo *module,
   data->coverage_to_inst.erase(iter);
 }
 
-uint64_t LiteCov::GetCmpCode(size_t bb_offset, size_t cmp_offset, int bits_match) {
+uint64_t LiteCov::GetCmpCode(size_t bb_offset, size_t cmp_offset,
+                             int bits_match) {
   // cmp code consists of bb offset in the highest 32 bits
   // cmp instruction offset (from bb start) in the next 24 bits
   // and bits to match in the lowest 8 bits
-  uint64_t code = (((uint64_t)bb_offset << 32) + ((cmp_offset << 8) & 0xFFFFFFFFUL) + bits_match);
+  uint64_t code = (((uint64_t)bb_offset << 32) +
+                   ((cmp_offset << 8) & 0xFFFFFFFFUL) + bits_match);
   // it also has the highest bit set
   code |= 0x8000000000000000ULL;
   return code;
@@ -338,19 +340,19 @@ void LiteCov::GetCoverage(Coverage &coverage, bool clear_coverage) {
 
 // sets (new) coverage to ignore
 void LiteCov::IgnoreCoverage(Coverage &coverage) {
-  for (const ModuleCoverage& mod_cov: coverage) {
+  for (const ModuleCoverage &mod_cov : coverage) {
     ModuleInfo *module = GetModuleByName(mod_cov.module_name.c_str());
     if (!module) continue;
     ModuleCovData *data = (ModuleCovData *)module->client_data;
 
     // remember the offsets so they don't get instrumented later
-    data->ignore_coverage.insert(mod_cov.offsets.begin(), mod_cov.offsets.end());
-
+    data->ignore_coverage.insert(mod_cov.offsets.begin(),
+                                 mod_cov.offsets.end());
     if (!module->instrumented) continue;
 
     // if we already have instrumentation in place for some of the offsets
     // remove it here
-    for (const uint64_t code_off: mod_cov.offsets) {
+    for (const uint64_t code_off : mod_cov.offsets) {
       ClearCoverageInstrumentation(module, code_off);
     }
   }
@@ -372,7 +374,7 @@ void LiteCov::OnProcessExit() {
 }
 
 void ModuleCovData::ClearCmpCoverageData() {
-  for (auto& [buffer_offset, cmp_record]: buf_to_cmp) {
+  for (auto &[buffer_offset, cmp_record] : buf_to_cmp) {
     delete cmp_record;
   }
   buf_to_cmp.clear();
@@ -412,8 +414,8 @@ void LiteCov::CollectCmpCoverage(ModuleCovData *data, size_t buffer_offset,
   for (int match = cmp_record->match_width; match <= buffer_value; match += 8) {
     // full match, no need to record it
     if (match == cmp_record->width) break;
-    uint64_t coverage_code = GetCmpCode(
-        cmp_record->bb_offset, cmp_record->cmp_offset, match);
+    uint64_t coverage_code =
+        GetCmpCode(cmp_record->bb_offset, cmp_record->cmp_offset, match);
     data->collected_coverage.insert(coverage_code);
   }
 }

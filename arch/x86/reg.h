@@ -20,6 +20,8 @@ limitations under the License.
 #define ARCH_SP RSP
 #define ARCH_PC RIP
 #define ARCH_RETURN_VALUE_REGISTER RAX
+#define ARCH_IP_VALUE_REGISTER RAX
+#define ARCH_PERSONALITY_VALUE_REGISTER RBX
 #define ARCH_PC RIP
 #define ORIG_ADDR_REG RAX
 

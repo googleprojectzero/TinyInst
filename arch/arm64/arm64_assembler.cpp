@@ -136,10 +136,10 @@ void Arm64Assembler::EmitLoadLit(ModuleInfo *module, Register dst_reg,
   // next_instr
   uint64_t addr = (uint64_t)module->instrumented_code_local +
                   module->instrumented_code_allocated;
-  uint32_t ldr_lit_opc = ldr_lit(dst_reg, 8, size, is_signed);
-  tinyinst_.WriteCode(module, &ldr_lit_opc, sizeof(ldr_lit_opc));
-  uint32_t b_opc = b(0, 12);
-  tinyinst_.WriteCode(module, &b_opc, sizeof(b_opc));
+  uint32_t ldr_lit_instr = ldr_lit(dst_reg, 8, size, is_signed);
+  tinyinst_.WriteCode(module, &ldr_lit_instr, sizeof(ldr_lit_instr));
+  uint32_t b_instr = b(0, 12);
+  tinyinst_.WriteCode(module, &b_instr, sizeof(b_instr));
   tinyinst_.WriteCode(module, &value, sizeof(value));
 }
 

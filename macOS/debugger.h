@@ -382,6 +382,7 @@ private:
                             MemoryProtection protection);
 
   kern_return_t RemoteAllocateAt(void *ret_address, int size);
+  void* RemoteAllocate(size_t size, MemoryProtection protection);
 
   void ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                 mach_vm_address_t segment_end_addr,

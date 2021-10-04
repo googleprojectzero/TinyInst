@@ -174,7 +174,6 @@ void TinyInst::CommitCode(ModuleInfo *module, size_t start_offset, size_t size) 
   RemoteWrite(module->instrumented_code_remote + start_offset,
               module->instrumented_code_local + start_offset,
               size);
-
 }
 
 // Checks if there is sufficient space and writes code at the current offset
