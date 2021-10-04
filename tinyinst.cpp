@@ -1134,7 +1134,6 @@ void TinyInst::Init(int argc, char **argv) {
 
   for(const auto& mod_name: uniq_mod_names) {
     module_names.emplace_back((char*)mod_name.c_str());
-    SAY("-- %s\n", mod_name.c_str());
   }
 #endif
   for (const auto module_name: module_names) {
