@@ -168,7 +168,7 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 `-patch_return_addresses` - replaces return address with the original value, causes returns to be instrumented using whatever `-indirect_instrumentation` method is specified
 
-`-generate_unwind` - Generates stack unwinding data for instrumented code (for faster C++ exception handling).
+`-generate_unwind` - Generates stack unwinding data for instrumented code (for faster C++ exception handling). Note that it might work correctly on some older Windows versions.
 
 `-persist_instrumentation_data` (default = true) Does not reinstrument module on module unloads / reloads. Only works if the module is loaded on the same address it was loaded before.
 
@@ -248,7 +248,7 @@ Note that on modern Windows, due to CFG, all indirect jump/calls happen from the
 
 By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding during exception handling on 64-bit Windows and Mac. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
 
-This can be resolved in most cases by adding `-generate_unwind` flag, which causes TinyInst to generate and register stack unwinding / exception handling metadata for the target process.
+This can be resolved in most cases by adding `-generate_unwind` flag, which causes TinyInst to generate and register stack unwinding / exception handling metadata for the target process. Note that `-generate_unwind` might work correctly on some older Windows versions due to requiring UNWIND_INFO version 2.
 
 TinyInst also has an option (exposed through `-patch_return_addresses` flag) to rewrite return addresses into their corresponding values in the non-instrumented code whenever a call occurs. Note however that this option introduces quite a large overhead, as it causes a context switch on every return (backwards edge) from an uninstrumented into an instrumented module.
 
