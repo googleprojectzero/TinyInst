@@ -97,6 +97,20 @@ void Debugger::RetrieveThreadContext() {
   have_thread_context = true;
 }
 
+void Debugger::SaveRegisters(SavedRegisters* registers) {
+  RetrieveThreadContext();
+  memcpy(&registers->saved_context, &lcContext, sizeof(registers->saved_context));
+}
+
+void Debugger::RestoreRegisters(SavedRegisters* registers) {
+  have_thread_context = false;
+  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
+  if (!SetThreadContext(thread_handle, &lcContext)) {
+    FATAL("Error restoring registers");
+  }
+  CloseHandle(thread_handle);
+}
+
 size_t Debugger::GetRegister(Register r) {
   RetrieveThreadContext();
 
@@ -472,7 +486,7 @@ void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
     buffer,
     size,
     &size_read)) {
-    FATAL("Error writing target memory\n");
+    FATAL("Error reading target memory\n");
   }
 }
 
@@ -712,12 +726,25 @@ void Debugger::AddBreakpoint(void *address, int type) {
 
 // damn it Windows, why don't you have a GetProcAddress
 // that works on another process
-DWORD Debugger::GetProcOffset(char *data, const char *name) {
+DWORD Debugger::GetProcOffset(HMODULE module, const char *name) {
+  char* base_of_dll = (char*)module;
+  DWORD size_of_image = GetImageSize(base_of_dll);
+
+  // try the exported symbols next
+  char* modulebuf = (char*)malloc(size_of_image);
+  SIZE_T num_read;
+  if (!ReadProcessMemory(child_handle, base_of_dll, modulebuf, size_of_image, &num_read) ||
+    (num_read != size_of_image))
+  {
+    FATAL("Error reading target memory\n");
+  }
+
   DWORD pe_offset;
-  pe_offset = *((DWORD *)(data + 0x3C));
-  char *pe = data + pe_offset;
+  pe_offset = *((DWORD *)(modulebuf + 0x3C));
+  char *pe = modulebuf + pe_offset;
   DWORD signature = *((DWORD *)pe);
   if (signature != 0x00004550) {
+    free(modulebuf);
     return 0;
   }
   pe = pe + 0x18;
@@ -728,31 +755,40 @@ DWORD Debugger::GetProcOffset(char *data, const char *name) {
   } else if (magic == 0x20b) {
     exporttableoffset = *(DWORD *)(pe + 112);
   } else {
+    free(modulebuf);
     return 0;
   }
 
-  if (!exporttableoffset) return 0;
-  char *exporttable = data + exporttableoffset;
+  if (!exporttableoffset) {
+    free(modulebuf);
+    return 0;
+  }
+
+  char *exporttable = modulebuf + exporttableoffset;
 
   DWORD numentries = *(DWORD *)(exporttable + 24);
   DWORD addresstableoffset = *(DWORD *)(exporttable + 28);
   DWORD nameptrtableoffset = *(DWORD *)(exporttable + 32);
   DWORD ordinaltableoffset = *(DWORD *)(exporttable + 36);
-  DWORD *nameptrtable = (DWORD *)(data + nameptrtableoffset);
-  WORD *ordinaltable = (WORD *)(data + ordinaltableoffset);
-  DWORD *addresstable = (DWORD *)(data + addresstableoffset);
+  DWORD *nameptrtable = (DWORD *)(modulebuf + nameptrtableoffset);
+  WORD *ordinaltable = (WORD *)(modulebuf + ordinaltableoffset);
+  DWORD *addresstable = (DWORD *)(modulebuf + addresstableoffset);
 
   DWORD i;
   for (i = 0; i < numentries; i++) {
-    char *nameptr = data + nameptrtable[i];
+    char *nameptr = modulebuf + nameptrtable[i];
     if (strcmp(name, nameptr) == 0) break;
   }
 
-  if (i == numentries) return 0;
+  if (i == numentries) {
+    free(modulebuf);
+    return 0;
+  }
 
   WORD oridnal = ordinaltable[i];
   DWORD offset = addresstable[oridnal];
 
+  free(modulebuf);
   return offset;
 }
 
@@ -760,23 +796,13 @@ DWORD Debugger::GetProcOffset(char *data, const char *name) {
 // in various ways
 char *Debugger::GetTargetAddress(HMODULE module) {
   char* base_of_dll = (char *)module;
-  DWORD size_of_image = GetImageSize(base_of_dll);
 
   // if persist_offset is defined, use that
   if (target_offset) {
     return base_of_dll + target_offset;
   }
 
-  // try the exported symbols next
-  BYTE *modulebuf = (BYTE *)malloc(size_of_image);
-  SIZE_T num_read;
-  if (!ReadProcessMemory(child_handle, base_of_dll, modulebuf, size_of_image, &num_read) ||
-     (num_read != size_of_image))
-  {
-    FATAL("Error reading target memory\n");
-  }
-  DWORD offset = GetProcOffset((char *)modulebuf, target_method.c_str());
-  free(modulebuf);
+  DWORD offset = GetProcOffset(module, target_method.c_str());
   if (offset) {
     return (char *)module + offset;
   }

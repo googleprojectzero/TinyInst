@@ -36,6 +36,10 @@ enum DebuggerStatus {
   DEBUGGER_ATTACHED
 };
 
+struct SavedRegisters {
+  CONTEXT saved_context;
+};
+
 class Debugger {
 public:
 
@@ -127,6 +131,11 @@ protected:
 
   void *GetTargetMethodAddress() { return target_address;  }
 
+  DWORD GetProcOffset(HMODULE module, const char* name); 
+
+  void SaveRegisters(SavedRegisters* registers);
+  void RestoreRegisters(SavedRegisters* registers);
+
 private:
   struct Breakpoint {
     void *address;
@@ -149,7 +158,6 @@ private:
   void DeleteBreakpoints();
   DWORD WindowsProtectionFlags(MemoryProtection protection);
   DWORD GetImageSize(void *base_address);
-  DWORD GetProcOffset(char *data, const char *name);
   void *RemoteAllocateBefore(uint64_t min_address,
                              uint64_t max_address,
                              size_t size,

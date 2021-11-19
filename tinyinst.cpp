@@ -975,6 +975,12 @@ bool TinyInst::OnException(Exception *exception_record) {
 
 void TinyInst::OnProcessCreated() {
   Debugger::OnProcessCreated();
+
+  if ((child_ptr_size == 4) && unwind_generator->Is64BitOnly()) {
+    WARN("generate_unwind used with 32-bit process. Disabling.");
+    delete unwind_generator;
+    unwind_generator = new UnwindGenerator(*this);
+  }
 }
 
 void TinyInst::OnProcessExit() {
@@ -1055,15 +1061,22 @@ void TinyInst::Init(int argc, char **argv) {
   }
 
   generate_unwind = GetBinaryOption("-generate_unwind", argc, argv, false);
+
+  // if patch_return_addresses is on, disable generate_unwind
+  // regardless of the flag
+  if (patch_return_addresses) generate_unwind = false;
+
   if (!generate_unwind) {
     unwind_generator = new UnwindGenerator(*this);
   } else {
-  #ifdef __APPLE__
+#ifdef __APPLE__
     unwind_generator = new UnwindGeneratorMacOS(*this);
-  #else
+#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+    unwind_generator = new WinUnwindGenerator(*this);
+#else
     WARN("Unwind generator not implemented for the current platform");
     unwind_generator = new UnwindGenerator(*this);
-  #endif
+#endif
   }
   unwind_generator->Init(argc, argv);
 }

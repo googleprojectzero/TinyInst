@@ -60,6 +60,8 @@ public:
   
   virtual bool HandleBreakpoint(ModuleInfo* module, void *address) { return false; }
 
+  virtual bool Is64BitOnly() { return false; }
+
 protected:
 	TinyInst& tinyinst_;
 };

@@ -34,10 +34,14 @@ limitations under the License.
 #include "unwind.h"
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  // TO DO: Use the Windows version of UnwindGenerator
+
+#include "Windows/winunwind.h"
+
 #elif __APPLE__
-  #include "macOS/unwindmacos.h"
-  class UnwindGeneratorMacOS;
+
+#include "macOS/unwindmacos.h"
+class UnwindGeneratorMacOS;
+
 #endif
 
 // must be a power of two
@@ -221,7 +225,7 @@ private:
   friend class ModuleInfo;
   friend class UnwindGenerator;
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  // TO DO: Use the Windows version of UnwindGenerator
+  friend class WinUnwindGenerator;
 #elif __APPLE__
   friend class UnwindGeneratorMacOS;
 #endif
