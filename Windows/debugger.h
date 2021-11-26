@@ -19,6 +19,8 @@ limitations under the License.
 
 #include <string>
 #include <list>
+#include <unordered_set>
+#include <unordered_map>
 
 #include "common.h"
 #include "windows.h"
@@ -135,6 +137,12 @@ protected:
 
   void SaveRegisters(SavedRegisters* registers);
   void RestoreRegisters(SavedRegisters* registers);
+
+  void GetExceptionHandlers(size_t module_haeder, std::unordered_set <size_t>& handlers);
+
+  void PatchPointersRemote(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
+  template<typename T>
+  void PatchPointersRemoteT(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
 
 private:
   struct Breakpoint {

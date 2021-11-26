@@ -85,6 +85,13 @@ protected:
     II_AUTO
   };
 
+  enum PatchModuleEntriesValue {
+    OFF = 0,
+    DATA = 1,
+    CODE = 2,
+    ALL = DATA | CODE
+  };
+
   std::list<ModuleInfo *> instrumented_modules;
 
   struct CrossModuleLink {
@@ -177,6 +184,8 @@ private:
   void ClearCrossModuleLinks(ModuleInfo *module);
   void ClearCrossModuleLinks();
 
+  void PatchModuleEntries(ModuleInfo* module);
+
   // functions related to indirect jump/call instrumentation
   void InitGlobalJumptable(ModuleInfo *module);
   void InstrumentIndirect(ModuleInfo *module,
@@ -200,6 +209,14 @@ private:
                            bool global_indirect);
   bool HandleIndirectJMPBreakpoint(void *address);
 
+  void PatchPointersLocal(char* buf, size_t size,
+                          std::unordered_map<size_t, size_t>& search_replace,
+                          bool commit_code, ModuleInfo* module);
+  template<typename T>
+  void PatchPointersLocalT(char* buf, size_t size,
+                           std::unordered_map<size_t, size_t>& search_replace,
+                           bool commit_code, ModuleInfo* module);
+
   IndirectInstrumentation indirect_instrumentation_mode;
 
   bool instrument_cross_module_calls;
@@ -218,6 +235,8 @@ private:
 
   bool instrumentation_disabled;
   bool instrument_modules_on_load;
+
+  PatchModuleEntriesValue patch_module_entries;
 
   friend class Asssembler;
   friend class X86Assembler;
@@ -272,6 +291,8 @@ class ModuleInfo {
 
   std::unordered_set<size_t> invalid_instructions;
   std::unordered_map<size_t, size_t> tracepoints;
+
+  std::unordered_set<size_t> entry_offsets;
 
   UnwindData *unwind_data;
 

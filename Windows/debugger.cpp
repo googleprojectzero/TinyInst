@@ -468,13 +468,46 @@ void Debugger::RemoteFree(void *address, size_t size) {
 
 void Debugger::RemoteWrite(void *address, void *buffer, size_t size) {
   SIZE_T size_written;
+  if (WriteProcessMemory(
+    child_handle,
+    address,
+    buffer,
+    size,
+    &size_written))
+  {
+    return;
+  }
+
+  // we need to (a) read page permissions
+  // (b) make it writable, and (c) restore permissions
+  DWORD oldProtect;
+  if (!VirtualProtectEx(child_handle,
+    address,
+    size,
+    PAGE_READWRITE,
+    &oldProtect))
+  {
+    FATAL("Error in VirtualProtectEx");
+  }
+
   if (!WriteProcessMemory(
     child_handle,
     address,
     buffer,
     size,
-    &size_written)) {
+    &size_written))
+  {
     FATAL("Error writing target memory\n");
+  }
+
+  DWORD ignore;
+  if (!VirtualProtectEx(child_handle,
+    address,
+    size,
+    oldProtect,
+    &ignore))
+  {
+    FATAL("Error in VirtualProtectEx");
   }
 }
 
@@ -485,7 +518,8 @@ void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
     address,
     buffer,
     size,
-    &size_read)) {
+    &size_read))
+  {
     FATAL("Error reading target memory\n");
   }
 }
@@ -620,6 +654,35 @@ void Debugger::ProtectCodeRanges(std::list<AddressRange> *executable_ranges) {
       FATAL("Error in VirtualProtectEx");
     }
   }
+}
+
+void Debugger::PatchPointersRemote(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace) {
+  if (child_ptr_size == 4) {
+    PatchPointersRemoteT<uint32_t>(min_address, max_address, search_replace);
+  } else {
+    PatchPointersRemoteT<uint64_t>(min_address, max_address, search_replace);
+  }
+}
+
+template<typename T>
+void Debugger::PatchPointersRemoteT(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace) {
+  size_t module_size = max_address - min_address;
+  char* buf = (char *)malloc(module_size);
+  RemoteRead((void *)min_address, buf, module_size);
+
+  size_t remote_address = min_address;
+  for (size_t i = 0; i < (module_size - child_ptr_size + 1); i++) {
+    T ptr = *(T *)(buf + i);
+    auto iter = search_replace.find(ptr);
+    if (iter != search_replace.end()) {
+      // printf("patching entry %zx at address %zx\n", (size_t)ptr, remote_address);
+      T fixed_ptr = (T)iter->second;
+      RemoteWrite((void *)remote_address, &fixed_ptr, child_ptr_size);
+    }
+    remote_address += 1;
+  }
+
+  free(buf);
 }
 
 // returns an array of handles for all modules loaded in the target process
@@ -790,6 +853,74 @@ DWORD Debugger::GetProcOffset(HMODULE module, const char *name) {
 
   free(modulebuf);
   return offset;
+}
+
+// Gets the registered safe exception handlers for the module
+void Debugger::GetExceptionHandlers(size_t module_haeder, std::unordered_set <size_t>& handlers) {
+  // only present on x86
+  if (child_ptr_size != 4) return;
+
+  DWORD size_of_image = GetImageSize((void *)module_haeder);
+
+  char* modulebuf = (char*)malloc(size_of_image);
+  SIZE_T num_read;
+  if (!ReadProcessMemory(child_handle, (void *)module_haeder, modulebuf, size_of_image, &num_read) ||
+    (num_read != size_of_image))
+  {
+    FATAL("Error reading target memory\n");
+  }
+
+  DWORD pe_offset;
+  pe_offset = *((DWORD*)(modulebuf + 0x3C));
+  char* pe = modulebuf + pe_offset;
+  DWORD signature = *((DWORD*)pe);
+  if (signature != 0x00004550) {
+    free(modulebuf);
+    return;
+  }
+  pe = pe + 0x18;
+  WORD magic = *((WORD*)pe);
+  DWORD lc_offset;
+  DWORD lc_size;
+  if (magic == 0x10b) {
+    lc_offset = *(DWORD*)(pe + 176);
+    lc_size = *(DWORD*)(pe + 180);
+  } else if (magic == 0x20b) {
+    lc_offset = *(DWORD*)(pe + 192);
+    lc_size = *(DWORD*)(pe + 196);
+  } else {
+    free(modulebuf);
+    return;
+  }
+
+  if (!lc_offset || (lc_size != 64)) {
+    free(modulebuf);
+    return;
+  }
+
+  char* lc = modulebuf + lc_offset;
+
+  size_t seh_table_address;
+  DWORD seh_count;
+  if (magic == 0x10b) {
+    seh_table_address = *(DWORD*)(lc + 64);
+    seh_count = *(DWORD*)(lc + 68);
+  } else if (magic == 0x20b) {
+    seh_table_address = *(uint64_t*)(lc + 96);
+    seh_count = *(DWORD*)(lc + 104);
+  } else {
+    free(modulebuf);
+    return;
+  }
+
+  size_t seh_table_offset = seh_table_address - module_haeder;
+
+  DWORD* seh_table = (DWORD *)(modulebuf + seh_table_offset);
+  for (DWORD i = 0; i < seh_count; i++) {
+    handlers.insert(module_haeder + seh_table[i]);
+  }
+
+  free(modulebuf);
 }
 
 // attempt to obtain the address of target function

@@ -761,6 +761,10 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   if (trace_module_entries) {
     printf("TRACE: Entered module %s at address %p\n", module->module_name.c_str(), static_cast<void*>(address));
   }
+  if (patch_module_entries) {
+    size_t entry_offset = (size_t)address - module->min_address;
+    module->entry_offsets.insert(entry_offset);
+  }
 
   size_t translated_address = GetTranslatedAddress(module, (size_t)address);
   OnModuleEntered(module, (size_t)address);
@@ -856,6 +860,87 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
          module->module_name.c_str(), module->code_size);
 
   OnModuleInstrumented(module);
+
+  if (patch_module_entries) PatchModuleEntries(module);
+}
+
+void TinyInst::PatchPointersLocal(char* buf, size_t size, std::unordered_map<size_t, size_t>& search_replace, bool commit_code, ModuleInfo* module) {
+  if (child_ptr_size == 4) {
+    PatchPointersLocalT<uint32_t>(buf, size, search_replace, commit_code, module);
+  } else {
+    PatchPointersLocalT<uint64_t>(buf, size, search_replace, commit_code, module);
+  }
+}
+
+template<typename T>
+void TinyInst::PatchPointersLocalT(char* buf, size_t size, std::unordered_map<size_t, size_t>& search_replace, bool commit_code, ModuleInfo* module) {
+  size -= child_ptr_size - 1;
+  for (size_t i = 0; i < size; i++) {
+    T ptr = *(T*)(buf);
+    auto iter = search_replace.find(ptr);
+    if (iter != search_replace.end()) {
+      // printf("patching entry %zx at address %zx\n", (size_t)ptr, (size_t)buf);
+      // if (commit_code) printf("The address is in translated code\n");
+      T fixed_ptr = (T)iter->second;
+      *(T*)(buf) = fixed_ptr;
+      if (commit_code) {
+        CommitCode(module, i, child_ptr_size);
+      }
+    }
+    buf += 1;
+  }
+}
+
+void TinyInst::PatchModuleEntries(ModuleInfo* module) {
+  if (!patch_module_entries) return;
+
+  if (module->entry_offsets.empty()) return;
+
+  std::unordered_map<size_t, size_t> search_replace;
+  for (size_t offset : module->entry_offsets) {
+    size_t original_address = offset + module->min_address;
+    size_t translated_address = GetTranslatedAddress(module, original_address);
+    search_replace[original_address] = translated_address;
+  }
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64)
+
+  // patching exception handler addresses on x86 windows
+  // interferes with SafeSEH. A simple way around it for now
+  // is to simply remove exception handlers from the list
+  // of entrypoints
+  std::unordered_set<size_t> exception_handlers;
+  GetExceptionHandlers(module->min_address, exception_handlers);
+  for (size_t handler : exception_handlers) {
+    auto iter = search_replace.find(handler);
+    if (iter != search_replace.end()) {
+      // printf("Removing exception handler %zx from list of entrypoints to patch\n", handler);
+      search_replace.erase(iter);
+    }
+  }
+
+  // since at this point, we already read the code and the target can't
+  // execute it anymore, patching the entire library in the remote
+  // process is equivalent to patching data only
+  if (patch_module_entries & PatchModuleEntriesValue::DATA) {
+    PatchPointersRemote(module->min_address, module->max_address, search_replace);
+  }
+
+#else
+  FATAL("Not implemented");
+#endif
+
+  if (patch_module_entries & PatchModuleEntriesValue::CODE) {
+    // we need to patch the local copy as the code has been
+    // copied to TinyInst process alredy
+    for (AddressRange& range : module->executable_ranges) {
+      PatchPointersLocal(range.data, (range.to - range.from), search_replace, false, NULL);
+    }
+    // some of that code could have been translated already
+    // while translating entrypoints themselves
+    PatchPointersLocal(module->instrumented_code_local, module->instrumented_code_allocated, search_replace, true, module);
+  }
+
 }
 
 // walks the list of modules and instruments
@@ -1058,6 +1143,21 @@ void TinyInst::Init(int argc, char **argv) {
       indirect_instrumentation_mode = II_AUTO;
     else
       FATAL("Unknown indirect instrumentation mode");
+  }
+
+  patch_module_entries = PatchModuleEntriesValue::OFF;
+  option = GetOption("-patch_module_entries", argc, argv);
+  if (option) {
+    if (strcmp(option, "off") == 0)
+      patch_module_entries = PatchModuleEntriesValue::OFF;
+    else if (strcmp(option, "data") == 0)
+      patch_module_entries = PatchModuleEntriesValue::DATA;
+    else if (strcmp(option, "code") == 0)
+      patch_module_entries = PatchModuleEntriesValue::CODE;
+    else if (strcmp(option, "all") == 0)
+      patch_module_entries = PatchModuleEntriesValue::ALL;
+    else
+      FATAL("Unknown -patch_module_entries value");
   }
 
   generate_unwind = GetBinaryOption("-generate_unwind", argc, argv, false);
