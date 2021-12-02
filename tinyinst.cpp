@@ -699,6 +699,9 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   ModuleInfo *module = GetModuleFromInstrumented((size_t)address);
   if (!module) return;
 
+  // clear known entries on crash
+  module->entry_offsets.clear();
+
   printf("Exception in instrumented module %s\n", module->module_name.c_str());
   size_t offset = (size_t)address - (size_t)module->instrumented_code_remote;
 
