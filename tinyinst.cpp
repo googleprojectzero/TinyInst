@@ -1174,7 +1174,7 @@ void TinyInst::Init(int argc, char **argv) {
   } else {
 #ifdef __APPLE__
     unwind_generator = new UnwindGeneratorMacOS(*this);
-#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+#elif defined(_WIN64)
     unwind_generator = new WinUnwindGenerator(*this);
 #else
     WARN("Unwind generator not implemented for the current platform");

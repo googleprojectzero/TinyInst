@@ -33,7 +33,7 @@ limitations under the License.
 #include "instruction.h"
 #include "unwind.h"
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+#if defined(_WIN64)
 
 #include "Windows/winunwind.h"
 
@@ -243,7 +243,7 @@ private:
   friend class Arm64Assembler;
   friend class ModuleInfo;
   friend class UnwindGenerator;
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+#if defined(_WIN64)
   friend class WinUnwindGenerator;
 #elif __APPLE__
   friend class UnwindGeneratorMacOS;
