@@ -327,3 +327,33 @@ void FixRipDisplacement(xed_encoder_request_t *inst, size_t mem_address, size_t 
   
   xed_encoder_request_set_memory_displacement(inst, fixed_disp, 4);
 }
+
+// checks if the instruction uses RSP-relative addressing,
+// e.g. mov rax, [rsp+displacement];
+// and, if so, returns the displacement
+bool IsRspRelative(xed_decoded_inst_t *xedd, size_t* displacement) {
+  bool rsp_relative = false;
+  int64_t disp;
+
+  uint32_t memops = xed_decoded_inst_number_of_memory_operands(xedd);
+
+  for (uint32_t i = 0; i < memops; i++) {
+    xed_reg_enum_t base = xed_decoded_inst_get_base_reg(xedd, i);
+    switch (base) {
+    case XED_REG_RSP:
+    case XED_REG_ESP:
+    case XED_REG_SP:
+      rsp_relative = true;
+      disp = xed_decoded_inst_get_memory_displacement(xedd, i);
+      break;
+    default:
+      break;
+    }
+  }
+
+  if (!rsp_relative) return false;
+
+  *displacement = (size_t)(disp);
+
+  return rsp_relative;
+}

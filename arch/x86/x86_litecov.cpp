@@ -297,6 +297,9 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
   bool rip_relative = assembler_->IsRipRelative(
       module, inst, instruction_address, &mem_address);
 
+  size_t rsp_displacement = 0;
+  bool rsp_relative = IsRspRelative(xedd, &rsp_displacement);
+
   // start with NOP that's going to be replaced with
   // JMP when the instrumentation is removed
   WriteCode(module, NOP5, sizeof(NOP5));
@@ -379,6 +382,10 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
     if (rip_relative) {
       FixRipDisplacement(xedd, mem_address,
                          GetCurrentInstrumentedAddress(module));
+    }
+
+    if (rsp_relative) {
+      xed_encoder_request_set_memory_displacement(xedd, rsp_displacement + stack_offset, 4);
     }
 
     xed_error = xed_encode(xedd, encoded, sizeof(encoded), &olen);
