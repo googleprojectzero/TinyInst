@@ -54,4 +54,6 @@ void FixRipDisplacement(xed_encoder_request_t *inst,
                         size_t mem_address,
                         size_t fixed_instruction_address);
 
+bool IsRspRelative(xed_decoded_inst_t* xedd, size_t* displacement);
+
 #endif  // ARCH_X86_X86_HELPERS_H

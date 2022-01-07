@@ -33,11 +33,15 @@ limitations under the License.
 #include "instruction.h"
 #include "unwind.h"
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  // TO DO: Use the Windows version of UnwindGenerator
+#if defined(_WIN64)
+
+#include "Windows/winunwind.h"
+
 #elif __APPLE__
-  #include "macOS/unwindmacos.h"
-  class UnwindGeneratorMacOS;
+
+#include "macOS/unwindmacos.h"
+class UnwindGeneratorMacOS;
+
 #endif
 
 // must be a power of two
@@ -79,6 +83,13 @@ protected:
     II_GLOBAL,
     II_LOCAL,
     II_AUTO
+  };
+
+  enum PatchModuleEntriesValue {
+    OFF = 0,
+    DATA = 1,
+    CODE = 2,
+    ALL = DATA | CODE
   };
 
   std::list<ModuleInfo *> instrumented_modules;
@@ -173,6 +184,8 @@ private:
   void ClearCrossModuleLinks(ModuleInfo *module);
   void ClearCrossModuleLinks();
 
+  void PatchModuleEntries(ModuleInfo* module);
+
   // functions related to indirect jump/call instrumentation
   void InitGlobalJumptable(ModuleInfo *module);
   void InstrumentIndirect(ModuleInfo *module,
@@ -196,6 +209,14 @@ private:
                            bool global_indirect);
   bool HandleIndirectJMPBreakpoint(void *address);
 
+  void PatchPointersLocal(char* buf, size_t size,
+                          std::unordered_map<size_t, size_t>& search_replace,
+                          bool commit_code, ModuleInfo* module);
+  template<typename T>
+  void PatchPointersLocalT(char* buf, size_t size,
+                           std::unordered_map<size_t, size_t>& search_replace,
+                           bool commit_code, ModuleInfo* module);
+
   IndirectInstrumentation indirect_instrumentation_mode;
 
   bool instrument_cross_module_calls;
@@ -215,13 +236,15 @@ private:
   bool instrumentation_disabled;
   bool instrument_modules_on_load;
 
+  PatchModuleEntriesValue patch_module_entries;
+
   friend class Asssembler;
   friend class X86Assembler;
   friend class Arm64Assembler;
   friend class ModuleInfo;
   friend class UnwindGenerator;
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  // TO DO: Use the Windows version of UnwindGenerator
+#if defined(_WIN64)
+  friend class WinUnwindGenerator;
 #elif __APPLE__
   friend class UnwindGeneratorMacOS;
 #endif
@@ -268,6 +291,8 @@ class ModuleInfo {
 
   std::unordered_set<size_t> invalid_instructions;
   std::unordered_map<size_t, size_t> tracepoints;
+
+  std::unordered_set<size_t> entry_offsets;
 
   UnwindData *unwind_data;
 

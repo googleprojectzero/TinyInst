@@ -67,6 +67,8 @@ if (WIN32)
   set (platform_specific_files
        Windows/debugger.h
        Windows/debugger.cpp
+       Windows/winunwind.cpp
+       Windows/winunwind.h
   )
 elseif (APPLE)
   if (${ARCHITECTURE} MATCHES arm64)
