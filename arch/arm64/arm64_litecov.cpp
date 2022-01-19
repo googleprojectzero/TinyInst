@@ -21,11 +21,7 @@ limitations under the License.
 #include "litecov.h"
 
 void LiteCov::NopCovInstructions(ModuleInfo *module, size_t code_offset) {
-  uint32_t branch_offset = 12;
-  if (sp_offset) {
-    branch_offset += 2;
-  }
-  uint32_t b_instr = b(0, 4 * branch_offset);
+  uint32_t b_instr = b(0, skip_cov_instruction_br_off);
   WriteCodeAtOffset(module, code_offset, &b_instr, sizeof(b_instr));
   // need to commit since this isn't a part of normal instrumentation process
   CommitCode(module, code_offset, sizeof(b_instr));
@@ -61,6 +57,7 @@ void LiteCov::EmitCoverageInstrumentation(ModuleInfo *module,
 
   Arm64Assembler *arm64asm = static_cast<Arm64Assembler *>(assembler_);
 
+  skip_cov_instruction_br_off = module->instrumented_code_allocated;
   if (sp_offset) {
     arm64asm->OffsetStack(module, -sp_offset);
   }
@@ -84,6 +81,8 @@ void LiteCov::EmitCoverageInstrumentation(ModuleInfo *module,
   if (sp_offset) {
     arm64asm->OffsetStack(module, sp_offset);
   }
+
+  skip_cov_instruction_br_off = module->instrumented_code_allocated - skip_cov_instruction_br_off;
 }
 
 InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
@@ -103,13 +102,34 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
     return INST_NOTHANDLED;
   }
 
-  // cmp instructions use the zero register as destination
   arm64::Register rd = std::get<arm64::Register>(inst.instr.operands[0]);
-  if (rd.name != arm64::Register::kXzr) {
+  int operand_width = rd.size;
+
+  // Skip instructions that are unlikely to be used as compare:
+  //  most compare instructions have zero register as destination
+  //  switch statements use subs (setting flag)
+  if (rd.name != arm64::Register::kXzr &&
+      !(inst.instr.set_flags &&
+        (inst.instr.opcode == arm64::Opcode::kSubImmediate ||
+        inst.instr.opcode == arm64::Opcode::kSubShiftedRegister ||
+        inst.instr.opcode == arm64::Opcode::kSubExtendedRegister))) {
     return INST_NOTHANDLED;
   }
 
-  int operand_width = rd.size;
+  arm64::Register rn = std::get<arm64::Register>(inst.instr.operands[1]);
+  if (rn.name == arm64::Register::kSp) {
+    return INST_NOTHANDLED;
+  }
+
+  if (inst.instr.opcode == arm64::Opcode::kSubShiftedRegister ||
+      inst.instr.opcode == arm64::Opcode::kAddShiftedRegister ||
+      inst.instr.opcode == arm64::Opcode::kAddExtendedRegister ||
+      inst.instr.opcode == arm64::Opcode::kSubExtendedRegister) {
+    arm64::Register rm = std::get<arm64::Register>(inst.instr.operands[2]);
+    if (rm.name == arm64::Register::kSp) {
+      return INST_NOTHANDLED;
+    }
+  }
 
   // kSubExtendedRegister / kAddExtendedRegister might have sizes smaller than
   // 32 bit. In case of 8 bit cmp, skip, in case of 16bit cmp add and-instr
@@ -127,7 +147,6 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
     }
   }
 
-  arm64::Register rn = std::get<arm64::Register>(inst.instr.operands[1]);
 
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
@@ -158,10 +177,6 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
   size_t instrumentation_start_offset = module->instrumented_code_allocated;
 
   Arm64Assembler *arm64asm = static_cast<Arm64Assembler *>(assembler_);
-
-  // start with NOP that's going to be replaced with
-  // JMP when the instrumentation is removed
-  arm64asm->Nop(module);
 
   if (sp_offset) {
     arm64asm->OffsetStack(module, -sp_offset);

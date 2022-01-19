@@ -228,6 +228,8 @@ private:
 
   bool generate_unwind;
 
+  bool page_extend_modules;
+
   // these could be indexed by module1 and module2 for performance
   // but the assumption for now is that there won't be too many of
   // them so a flat structure shoudl be ok for now

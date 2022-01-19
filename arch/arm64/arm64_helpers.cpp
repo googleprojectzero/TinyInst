@@ -372,6 +372,8 @@ uint32_t orr_shifted_reg(Register dst, Register rn, Register src) {
   return instr;
 }
 
+// Encode arm64 Bitwise Exclusive OR (shifted register) instruction.
+// (https://developer.arm.com/documentation/dui0801/g/A64-General-Instructions/EOR--shifted-register-)
 uint32_t eor_shifted_reg(uint8_t sz, Register rd, Register rn, Register rm, arm64::Shift::Type shift_type, uint8_t shift_count) {
   uint32_t instr = 0;
 

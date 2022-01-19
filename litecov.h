@@ -142,6 +142,7 @@ protected:
 private:
   CovType coverage_type;
   bool compare_coverage;
+  size_t skip_cov_instruction_br_off;
 };
 
 #endif // LITECOV_H

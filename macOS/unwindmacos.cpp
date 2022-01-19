@@ -27,6 +27,13 @@ limitations under the License.
 #define LOOKUP_TABLE_CHUNK_SIZE (1024*1024)
 #define LOOKUP_TABLE_ELEMENT_SIZE (4 * sizeof(void *))
 #define LOOKUP_TABLE_BUCKETS 16384 //needs to be a power of two
+#ifdef ARM64
+#define ARCH_IP_VALUE_REGISTER X22
+#define ARCH_PERSONALITY_VALUE_REGISTER X1
+#else
+#define ARCH_IP_VALUE_REGISTER RAX
+#define ARCH_PERSONALITY_VALUE_REGISTER RBX
+#endif
 
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 

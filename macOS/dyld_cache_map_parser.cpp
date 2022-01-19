@@ -36,6 +36,11 @@ static bool is_page_aligned(uint64_t addr, uint64_t page_size = 0x4000) {
 
 std::map<std::string, std::vector<std::string>> parse_dyld_map_file(const std::string &path) {
   std::ifstream cache_map(path);
+
+  if(!cache_map.is_open()) {
+    FATAL("Unable to open: %s", path.c_str());
+  }
+
   std::string line;
 
   std::map<std::string, std::vector<std::string>> result;

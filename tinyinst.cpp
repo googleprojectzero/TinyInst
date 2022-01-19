@@ -19,6 +19,7 @@ limitations under the License.
 #include <stdio.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <algorithm>
 
 #include <list>
 
@@ -29,9 +30,10 @@ limitations under the License.
 #else
   #include "arch/x86/x86_assembler.h"
 #endif
-#if defined __APPLE__ && defined ARM64
+#if defined(__APPLE__) && defined(ARM64)
   #include <set>
   #include "macOS/dyld_cache_map_parser.h"
+  #define DYLD_MAP_FILE "/System/Library/dyld/dyld_shared_cache_arm64e.map"
 #endif
 
 ModuleInfo::ModuleInfo() {
@@ -840,10 +842,15 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   }
 
   module->instrumented_code_remote =
+#ifdef ARM64
+    (char *)RemoteAllocate(module->instrumented_code_size,
+                           READEXECUTE);
+#else
     (char *)RemoteAllocateNear((uint64_t)module->min_address,
                                (uint64_t)module->max_address,
                                module->instrumented_code_size,
                                READEXECUTE);
+#endif
 
   if (!module->instrumented_code_remote) {
     // TODO also try allocating after the module
@@ -906,7 +913,7 @@ void TinyInst::PatchModuleEntries(ModuleInfo* module) {
     search_replace[original_address] = translated_address;
   }
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64)
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64) && !defined(__APPLE__)
 
   // patching exception handler addresses on x86 windows
   // interferes with SafeSEH. A simple way around it for now
@@ -1109,6 +1116,12 @@ void TinyInst::Init(int argc, char **argv) {
   trace_basic_blocks = GetBinaryOption("-trace_basic_blocks", argc, argv, false);
   trace_module_entries = GetBinaryOption("-trace_module_entries", argc, argv, false);
 
+#if defined(ARM64) && defined(__APPLE__)
+  page_extend_modules = GetBinaryOption("-page_extend_modules", argc, argv, true);
+#elif defined(__APPLE__)
+  page_extend_modules = GetBinaryOption("-page_extend_modules", argc, argv, false);
+#endif
+
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64)
   sp_offset = 0;
 #else
@@ -1125,17 +1138,43 @@ void TinyInst::Init(int argc, char **argv) {
 
   std::list <char *> module_names;
   GetOptionAll("-instrument_module", argc, argv, &module_names);
-#if defined __APPLE__ && defined ARM64
-  std::set <std::string> uniq_mod_names;
-  std::map<std::string, std::vector<std::string>> mod_grp = 
-    parse_dyld_map_file("/System/Library/dyld/dyld_shared_cache_arm64e.map");
-  uniq_mod_names.insert(module_names.begin(), module_names.end());
-  module_names.clear();
 
-  for(const auto& mod_name: uniq_mod_names) {
-    module_names.emplace_back((char*)mod_name.c_str());
+#if defined(__APPLE__) && defined(ARM64)
+  std::set <std::string> orig_uniq_mod_names;
+  std::set <std::string> new_uniq_mod_names;
+  if(page_extend_modules) {
+    std::map<std::string, std::vector<std::string>> mod_grp =
+      parse_dyld_map_file(DYLD_MAP_FILE);
+
+    if (mod_grp.empty()) {
+      FATAL("Module group is expected to have entries.");
+    }
+
+    // Store modules, specified by user, in set for faster lookup.
+    orig_uniq_mod_names.insert(module_names.begin(), module_names.end());
+
+    // Generate list of additionally needed modules.
+    for(auto* mod_name: module_names) {
+      auto it = mod_grp.find(mod_name);
+      if(it != mod_grp.end()) {
+        for(const auto &m: it->second) {
+          // Only add if not specified by user (to keep track of newly added
+          // modules).
+          if(orig_uniq_mod_names.count(m) == 0) {
+            new_uniq_mod_names.insert(m);
+          }
+        }
+      }
+    }
+
+    SAY("Additionally added modules to align to pages:\n");
+    for (const auto &m : new_uniq_mod_names) {
+      SAY("  %s\n", m.c_str());
+      module_names.emplace_back((char*)m.c_str());
+    }
   }
 #endif
+
   for (const auto module_name: module_names) {
     ModuleInfo *new_module = new ModuleInfo();
     new_module->module_name = module_name;
