@@ -1118,8 +1118,8 @@ void TinyInst::Init(int argc, char **argv) {
 
 #if defined(ARM64) && defined(__APPLE__)
   page_extend_modules = GetBinaryOption("-page_extend_modules", argc, argv, true);
-#elif defined(__APPLE__)
-  page_extend_modules = GetBinaryOption("-page_extend_modules", argc, argv, false);
+#else
+  page_extend_modules = false;
 #endif
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64)

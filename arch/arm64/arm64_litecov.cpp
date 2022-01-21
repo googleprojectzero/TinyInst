@@ -57,7 +57,7 @@ void LiteCov::EmitCoverageInstrumentation(ModuleInfo *module,
 
   Arm64Assembler *arm64asm = static_cast<Arm64Assembler *>(assembler_);
 
-  skip_cov_instruction_br_off = module->instrumented_code_allocated;
+  size_t cov_instruction_start_off = module->instrumented_code_allocated;
   if (sp_offset) {
     arm64asm->OffsetStack(module, -sp_offset);
   }
@@ -82,7 +82,8 @@ void LiteCov::EmitCoverageInstrumentation(ModuleInfo *module,
     arm64asm->OffsetStack(module, sp_offset);
   }
 
-  skip_cov_instruction_br_off = module->instrumented_code_allocated - skip_cov_instruction_br_off;
+  skip_cov_instruction_br_off = 
+    module->instrumented_code_allocated - cov_instruction_start_off;
 }
 
 InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
