@@ -36,6 +36,7 @@ if(${ARCHITECTURE} MATCHES arm64)
       arch/arm64/arm64_helpers.cpp
       arch/arm64/arm64_assembler.h
       arch/arm64/arm64_assembler.cpp
+      arch/arm64/arm64_litecov.cpp
   )
 else()
   set (arch_specific_files
@@ -98,29 +99,17 @@ elseif (APPLE)
        macOS/mig_server.c
        macOS/unwindmacos.cpp
        macOS/unwindmacos.h
+       macOS/dyld_cache_map_parser.cpp
+       macOS/dyld_cache_map_parser.h
   )
 endif()
 
-
-if(${ARCHITECTURE} MATCHES arm64)
-  add_library(tinyinst STATIC
-    common.h
-    common.cpp
-    assembler.h
-    instruction.h
-    tinyinst.h
-    tinyinst.cpp
-    ${arch_specific_files}
-    ${platform_specific_files}
-  )
-else()
-  add_library(tinyinst STATIC
-    ${arch_specific_files}
-    ${cross_platform_files}
-    ${platform_specific_files}
-  )
-  add_dependencies(tinyinst xed)
-endif()
+add_library(tinyinst STATIC
+  ${arch_specific_files}
+  ${arch_specific_files}
+  ${platform_specific_files}
+  ${cross_platform_files}
+)
 
 target_include_directories(tinyinst PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -129,7 +118,9 @@ target_include_directories(tinyinst PUBLIC
 
 if((${ARCHITECTURE} MATCHES arm64) AND APPLE)
   add_dependencies(tinyinst reil)
+  target_link_libraries(tinyinst reil)
 else()
+  add_dependencies(tinyinst xed)
   if (WIN32)
     target_link_libraries(tinyinst
                           ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
@@ -142,7 +133,6 @@ else()
   endif()
 endif()
 
-if(NOT (${ARCHITECTURE} MATCHES arm64))
 project("litecov")
 
 add_executable(litecov
@@ -150,4 +140,3 @@ add_executable(litecov
 )
 
 target_link_libraries(litecov tinyinst)
-endif()

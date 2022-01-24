@@ -27,6 +27,13 @@ limitations under the License.
 #define LOOKUP_TABLE_CHUNK_SIZE (1024*1024)
 #define LOOKUP_TABLE_ELEMENT_SIZE (4 * sizeof(void *))
 #define LOOKUP_TABLE_BUCKETS 16384 //needs to be a power of two
+#ifdef ARM64
+#define ARCH_IP_VALUE_REGISTER X22
+#define ARCH_PERSONALITY_VALUE_REGISTER X1
+#else
+#define ARCH_IP_VALUE_REGISTER RAX
+#define ARCH_PERSONALITY_VALUE_REGISTER RBX
+#endif
 
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
 
@@ -371,20 +378,20 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
 
   if(in_process_lookup) {
     if((size_t)address == unwind_data->personality_breakpoint) {
-      size_t ip = tinyinst_.GetRegister(RAX);
+      size_t ip = tinyinst_.GetRegister(ARCH_IP_VALUE_REGISTER);
       WARN("Unwinding lookup failed for IP %zx", ip);
       return true;
     }
   } else {
     if((size_t)address == unwind_data->personality_breakpoint) {
-      size_t ip = tinyinst_.GetRegister(RAX);
+      size_t ip = tinyinst_.GetRegister(ARCH_IP_VALUE_REGISTER);
 
       auto it = unwind_data->return_addresses.find(ip);
       if (it != unwind_data->return_addresses.end()) {
         ip = it->second.original_return_address - 1;
         size_t personality = it->second.personality;
-        tinyinst_.SetRegister(RAX, ip);
-        tinyinst_.SetRegister(RBX, personality);
+        tinyinst_.SetRegister(ARCH_IP_VALUE_REGISTER, ip);
+        tinyinst_.SetRegister(ARCH_PERSONALITY_VALUE_REGISTER, personality);
         // printf("Set personality to %zx\n", personality);
       } else {
         WARN("Unwinding lookup failed for IP %zx", ip);

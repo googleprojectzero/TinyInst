@@ -47,7 +47,8 @@ class Arm64Assembler : public Assembler {
   bool IsRipRelative(ModuleInfo *module, Instruction &inst,
                      size_t instruction_address, size_t *mem_address) override;
   void TranslateJmp(ModuleInfo *module, ModuleInfo *target_module,
-                    size_t original_target, IndirectBreakpoinInfo& breakpoint_info,
+                    size_t original_target,
+                    IndirectBreakpoinInfo &breakpoint_info,
                     bool global_indirect, size_t previous_offset) override;
   void InstrumentLocalIndirect(ModuleInfo *module, Instruction &inst,
                                size_t instruction_address,
@@ -57,17 +58,18 @@ class Arm64Assembler : public Assembler {
   void FixOffset(ModuleInfo *module, uint32_t jmp_offset,
                  uint32_t target_offset) override;
 
+ protected:
+  void ReadRegStack(ModuleInfo *module, Register dst, int32_t offset);
+  void WriteRegStack(ModuleInfo *module, Register src, int32_t offset);
+  void EmitLoadLit(ModuleInfo *module, Register dst_reg, size_t size,
+                   bool is_signed, uint64_t value);
+
  private:
   uint8_t MovIndirectTarget(ModuleInfo *module, Instruction &inst);
 
-  void AdjustStack(ModuleInfo *module, int32_t offset);
-  void WriteStack(ModuleInfo *module, int32_t offset);
   void ReadStack(ModuleInfo *module, int32_t offset);
-  void WriteRegStack(ModuleInfo *module, Register src, int32_t offset);
-  void ReadRegStack(ModuleInfo *module, Register dst, int32_t offset);
+  void WriteStack(ModuleInfo *module, int32_t offset);
 
-  void EmitLoadLit(ModuleInfo *module, Register dst_reg, size_t size,
-                   bool is_signed, uint64_t value);
   void SetReturnAddress(ModuleInfo *module, uint64_t return_address);
 
   void InstrumentRet(const char *address, ModuleInfo *module,
@@ -90,5 +92,7 @@ class Arm64Assembler : public Assembler {
                       std::list<std::pair<uint32_t, uint32_t>> *offset_fixes,
                       Instruction &inst, const char *code_ptr, size_t offset,
                       size_t last_offset);
+
+  friend class LiteCov;
 };
 #endif  // ARCH_ARM64_ARM64_ASSEMBLER_H

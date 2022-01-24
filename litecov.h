@@ -114,7 +114,6 @@ protected:
                              CmpCoverageRecord &cmp_record,
                              int matched_width);
 
-
   // compute a unique code for a basic block
   // this is just an offset into the module
   uint64_t GetBBCode(ModuleInfo *module, size_t bb_address);
@@ -143,6 +142,7 @@ protected:
 private:
   CovType coverage_type;
   bool compare_coverage;
+  size_t skip_cov_instruction_br_off;
 };
 
 #endif // LITECOV_H

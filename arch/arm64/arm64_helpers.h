@@ -47,6 +47,7 @@ uint32_t add_sub_reg_imm(uint8_t op, Register dst_reg, Register src_reg, uint32_
 uint32_t sub_reg_imm(Register dst_reg, Register src_reg, uint32_t offset);
 uint32_t add_reg_imm(Register dst_reg, Register src_reg, uint32_t offset);
 uint32_t orr_shifted_reg(Register dst, Register rn, Register src);
+uint32_t eor_shifted_reg(uint8_t sz, Register rd, Register rn, Register rm, arm64::Shift::Type shift_type, uint8_t shift_count);
 
 uint32_t cmp(Register src1, Register src2);
 

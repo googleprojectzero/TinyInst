@@ -86,6 +86,8 @@ Register reg(arm64::Register r) {
       return X29;
     case arm64::Register::kX30:
       return X30;
+    case arm64::Register::kXzr:
+      return XZR;
     default:
       FATAL("unsupported register");
   }
@@ -366,6 +368,63 @@ uint32_t orr_shifted_reg(Register dst, Register rn, Register src) {
   instr |= bits( 4,  0, dst);
   instr |= bits( 9,  5, rn);
   instr |= bits(20, 16, src);
+
+  return instr;
+}
+
+// Encode arm64 Bitwise Exclusive OR (shifted register) instruction.
+// (https://developer.arm.com/documentation/dui0801/g/A64-General-Instructions/EOR--shifted-register-)
+uint32_t eor_shifted_reg(uint8_t sz, Register rd, Register rn, Register rm, arm64::Shift::Type shift_type, uint8_t shift_count) {
+  uint32_t instr = 0;
+
+  if(sz == 64) {
+    instr |= bit(31);
+  }
+  else if (sz == 32) {
+
+  }
+  else {
+    FATAL("eor: unexpected size. Valid is 32 or 64, was %d", sz);
+  }
+
+  // data processing register
+  instr |= bits(29, 25, 0b0101);
+
+  // logical shift instr
+  // bit 28 not set
+  // bit 24 not set
+
+  // kEorShiftedRegister
+  instr |= bits(30, 29, 0b10);
+
+  // dst
+  instr |= bits(4, 0, rd);
+
+  // src1
+  instr |= bits(9, 5, rn);
+
+  // src2
+  instr |= bits(20, 16, rm);
+
+  // count
+  instr |= EncodeUnsignedImmediate(15, 10, shift_count);
+
+  switch (shift_type) {
+    case arm64::Shift::kNone:
+    case arm64::Shift::kLsl:
+      break;
+    case arm64::Shift::kLsr:
+      instr |= bits(23, 22, 0b01);
+      break;
+    case arm64::Shift::kAsr:
+      instr |= bits(23, 22, 0b10);
+      break;
+    case arm64::Shift::kRor:
+      instr |= bits(23, 22, 0b11);
+      break;
+    default:
+      FATAL("eor: unknown shift type: %d", shift_type);
+  }
 
   return instr;
 }

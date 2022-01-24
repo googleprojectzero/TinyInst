@@ -236,12 +236,14 @@ protected:
 
   void *MakeSharedMemory(mach_vm_address_t address, size_t size, MemoryProtection protection);
 
+  void *RemoteAllocate(size_t size,
+                       MemoryProtection protection,
+                       bool use_shared_memory = false);
   void *RemoteAllocateNear(uint64_t region_min,
                            uint64_t region_max,
                            size_t size,
                            MemoryProtection protection,
-			   bool use_shared_memory = false);
-  
+                           bool use_shared_memory = false);
   void *RemoteAllocate(size_t size);
 
   void ExtractCodeRanges(void *base_address,
