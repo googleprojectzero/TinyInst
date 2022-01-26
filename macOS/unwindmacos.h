@@ -159,7 +159,12 @@ public:
   UnwindGeneratorMacOS(TinyInst& tinyinst) : UnwindGenerator(tinyinst),
                                              register_frame_addr(0),
                                              unwind_getip(0),
+#ifdef ARM64
+                                             unwind_cursor_setReg(0),
+                                             unwind_cursor_setInfoBasedOnIPRegister(0) {}
+#else
                                              unwind_setip(0) {}
+#endif
   ~UnwindGeneratorMacOS() = default;
   
   void Init(int argc, char **argv) override;
@@ -214,10 +219,50 @@ private:
   
   size_t register_frame_addr;
   size_t unwind_getip;
+#ifdef ARM64
+  size_t unwind_cursor_setReg;
+  size_t unwind_cursor_setInfoBasedOnIPRegister;
+#else
   size_t unwind_setip;
+#endif
   
   bool in_process_lookup;
 
+#ifdef ARM64
+  static constexpr unsigned char register_assembly_arm64[] = {
+    // save registers
+      0xff, 0xc3, 0x00, 0xd1, // sub sp, sp, #48
+      0xe0, 0x4f, 0x02, 0xa9, // stp x0, x19, [sp, #32]
+      0xf4, 0x57, 0x01, 0xa9, // stp x20, x21, [sp, #16]
+      0xfd, 0x7b, 0x00, 0xa9, // stp fp, lr, [sp, #0]
+      0xfd, 0x03, 0x00, 0x91, // mov fp, sp
+      0xa0, 0x0f, 0x40, 0x92, // and x0, fp, #0xf
+      0x40, 0x00, 0x00, 0xb4, // cbz x0, skip_alignment
+      0xff, 0x23, 0x00, 0xd1, // sub sp, sp, #8
+    // skip_alignment:
+      0x93, 0x00, 0x00, 0x58, // ldr x19, #16; x19 becomes the current array pointer
+      0xb4, 0x00, 0x00, 0x58, // ldr x20, #20; x20 becomes the end array pointer
+      0xd5, 0x00, 0x00, 0x58, // ldr x21, #24; x21 becomes __register_frame address
+      0x09, 0x00, 0x00, 0x14, // b #36; loop
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array start addr goes here
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array end addr goes here
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // __register_frame addr goes here
+    // loop:
+      0x7f, 0x02, 0x14, 0xeb, // cmp x19, x20
+      0xaa, 0x00, 0x00, 0x54, // b.ge loop_end
+      0x60, 0x02, 0x40, 0xf9, // ldr x0, [x19]
+      0xa0, 0x02, 0x3f, 0xd6, // blr x21
+      0x73, 0x22, 0x00, 0x91, // add x19, x19, #8
+      0xfb, 0xff, 0xff, 0x17, // b loop
+    // loop_end:
+      0xbf, 0x03, 0x00, 0x91, // mov sp, fp
+      0xfd, 0x7b, 0x40, 0xa9, // ldp fp, lr, [sp, #0]
+      0xf4, 0x57, 0x41, 0xa9, // ldp x20, x21, [sp, #16]
+      0xe0, 0x4f, 0x42, 0xa9, // ldp x0, x19, [sp, #32]
+      0xff, 0xc3, 0x00, 0x91, // add sp, sp, #48
+  };
+  static const size_t register_assembly_arm64_data_offset = 48;
+#else
   static constexpr unsigned char register_assembly_x86[] = {
     // save registers
     0x53, // push   rbx
@@ -256,6 +301,7 @@ private:
   };
 
   static const size_t register_assembly_x86_data_offset = 50;
+#endif
 };
 
 #endif /* unwindmacos_h */

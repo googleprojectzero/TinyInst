@@ -28,14 +28,18 @@ limitations under the License.
 #define LOOKUP_TABLE_ELEMENT_SIZE (4 * sizeof(void *))
 #define LOOKUP_TABLE_BUCKETS 16384 //needs to be a power of two
 #ifdef ARM64
-#define ARCH_IP_VALUE_REGISTER X22
-#define ARCH_PERSONALITY_VALUE_REGISTER X1
+#define ARCH_IP_VALUE_REGISTER X0
+#define ARCH_PERSONALITY_VALUE_REGISTER X22
 #else
 #define ARCH_IP_VALUE_REGISTER RAX
 #define ARCH_PERSONALITY_VALUE_REGISTER RBX
 #endif
 
+#ifdef ARM64
+constexpr unsigned char UnwindGeneratorMacOS::register_assembly_arm64[];
+#else
 constexpr unsigned char UnwindGeneratorMacOS::register_assembly_x86[];
+#endif
 
 void UnwindGeneratorMacOS::Init(int argc, char **argv) {
   in_process_lookup = true;
@@ -366,10 +370,21 @@ void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
       FATAL("Error locating __Unwind_GetIP\n");
     }
 
+#ifdef ARM64
+    unwind_cursor_setReg = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__ZN9libunwind12UnwindCursorINS_17LocalAddressSpaceENS_15Registers_arm64EE6setRegEim");
+    unwind_cursor_setInfoBasedOnIPRegister = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__ZN9libunwind12UnwindCursorINS_17LocalAddressSpaceENS_15Registers_arm64EE24setInfoBasedOnIPRegisterEb");
+    if(!unwind_cursor_setReg) {
+      FATAL("Error locating unwind_cursor_setReg\n");
+    }
+    if(!unwind_cursor_setInfoBasedOnIPRegister) {
+      FATAL("Error locating unwind_cursor_setInfoBasedOnIPRegister\n");
+    }
+#else
     unwind_setip = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__Unwind_SetIP");
     if(!unwind_setip) {
       FATAL("Error locating __Unwind_SetIP\n");
     }
+#endif
   }
 }
 
@@ -388,7 +403,11 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
 
       auto it = unwind_data->return_addresses.find(ip);
       if (it != unwind_data->return_addresses.end()) {
+#ifdef ARM64
+        ip = it->second.original_return_address;
+#else
         ip = it->second.original_return_address - 1;
+#endif
         size_t personality = it->second.personality;
         tinyinst_.SetRegister(ARCH_IP_VALUE_REGISTER, ip);
         tinyinst_.SetRegister(ARCH_PERSONALITY_VALUE_REGISTER, personality);
@@ -439,7 +458,11 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
     return IP;
   }
 
+#ifdef ARM64
+  if(!register_frame_addr || !unwind_getip || !unwind_cursor_setReg || !unwind_cursor_setInfoBasedOnIPRegister) {
+#else
   if(!register_frame_addr || !unwind_getip || !unwind_setip) {
+#endif
     FATAL("Need to register unwinding data, but the addresses of libunwind functions are still unknown\n");
   }
   
@@ -465,27 +488,47 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   // now it's the same as fde_array_end, but that might change in the future
   // if other stuff gets written before the next line
   size_t continue_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+#if ARM64
+  if(continue_address & 0x3) {
+    for(int i = 0; i < (4 - (continue_address & 0x3)); ++i) {
+      unsigned char padding = 0xcc;
+      tinyinst_.WriteCode(module, (void*)&padding, 1);
+    }
+  }
+  continue_address += (4 - (continue_address & 0x3));
+#endif
 
   size_t assembly_offset = module->instrumented_code_allocated;
   
   // write the assembly snippet that calls __register_frame
+#ifdef ARM64
+  tinyinst_.WriteCode(module,
+                      (void*)register_assembly_arm64,
+                      sizeof(register_assembly_arm64));
+#else
   tinyinst_.WriteCode(module,
                       (void*)register_assembly_x86,
                       sizeof(register_assembly_x86));
+#endif
   
   // fill out the missing pieces in the assembly snippet
+#ifdef ARM64
+  size_t register_assembly_data_offset = register_assembly_arm64_data_offset;
+#else
+  size_t register_assembly_data_offset = register_assembly_x86_data_offset;
+#endif
   tinyinst_.WritePointerAtOffset(module,
                                  fde_array_start,
                                  assembly_offset +
-                                 register_assembly_x86_data_offset);
+                                 register_assembly_data_offset);
   tinyinst_.WritePointerAtOffset(module,
                                  fde_array_end,
                                  assembly_offset +
-                                 register_assembly_x86_data_offset + 8);
+                                 register_assembly_data_offset + 8);
   tinyinst_.WritePointerAtOffset(module,
                                  register_frame_addr,
                                  assembly_offset +
-                                 register_assembly_x86_data_offset + 16);
+                                 register_assembly_data_offset + 16);
 
   // insert a breakpoint instruction
   size_t breakpoint_address = tinyinst_.GetCurrentInstrumentedAddress(module);
@@ -521,7 +564,32 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
   }
 
   size_t new_personality_addr = tinyinst_.GetCurrentInstrumentedAddress(module);
-  
+
+#ifdef ARM64
+  unsigned char assembly_part1[] = {
+    0xff, 0x43, 0x02, 0xd1, // sub sp, sp, #0x90
+    0xfd, 0x7b, 0x08, 0xa9, // stp fp, lr, [sp, #0x80]
+    0xfd, 0x03, 0x00, 0x91, // mov fp, sp
+    0xf3, 0x53, 0x07, 0xa9, // stp x19, x20, [sp, #0x70]
+    0xf5, 0x5b, 0x06, 0xa9, // stp x21, x22, [sp, #0x60]
+    0xf7, 0x63, 0x05, 0xa9, // stp x23, x24, [sp, #0x50]
+    0xf9, 0x6b, 0x04, 0xa9, // stp x25, x26, [sp, #0x40]
+
+    // push personality parameters on stack
+    0xe0, 0x07, 0x03, 0xa9, // stp x0, x1, [sp, #0x30]
+    0xe2, 0x0f, 0x02, 0xa9, // stp x2, x3, [sp, #0x20]
+    0xe4, 0x17, 0x01, 0xa9, // stp x4, x5, [sp, #0x10]
+    0xe6, 0x1f, 0x00, 0xa9, // stp x6, x7, [sp, #0x00]
+
+    0xd6, 0x02, 0x16, 0xca, // eor x22, x22, x22
+
+    0xb3, 0x00, 0x00, 0x58, // ldr x19, #20; x19 becomes hashtable ptr
+    0xd4, 0x00, 0x00, 0x58, // ldr x20, #24; x20 becomes _Unwind_GetIP
+    0xf5, 0x00, 0x00, 0x58, // ldr x21, #28; x21 becomes libunwind::UnwindCursor::setReg
+    0x1a, 0x01, 0x00, 0x58, // ldr x26, #32; x26 becomes libunwind::UnwindCursor::setInfoBasedOnIPRegister
+    0x09, 0x00, 0x00, 0x14, // b #0x24
+  };
+#else
   unsigned char assembly_part1[] = {
     // function prologue
     0x55, // push rbp
@@ -547,12 +615,27 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x4C, 0x8B, 0x2D, 0x15, 0x00, 0x00, 0x00, // mov r13, [rip + offset]; r13 becomes _Unwind_SetIP
     0xE9, 0x18, 0x00, 0x00, 0x00 // jmp 0x18
   };
-  
+#endif
+
   tinyinst_.WriteCode(module, assembly_part1, sizeof(assembly_part1));
   tinyinst_.WritePointer(module, unwind_data->lookup_table.header_remote);
+#ifdef ARM64
+  tinyinst_.WritePointer(module, unwind_cursor_setReg);
+  tinyinst_.WritePointer(module, unwind_cursor_setInfoBasedOnIPRegister);
+#else
   tinyinst_.WritePointer(module, unwind_getip);
   tinyinst_.WritePointer(module, unwind_setip);
+#endif
 
+#ifdef ARM64
+  unsigned char assembly_part2[] = {
+    // save the unwinding context in x23 for later
+    0xf7, 0x03, 0x04, 0xaa, // mov x23, x4
+    0xe0, 0x03, 0x04, 0xaa, // mov x0, x4
+    // _Unwind_GetIP(context)
+    0x80, 0x02, 0x3f, 0xd6, // blr x20
+  };
+#else
   unsigned char assembly_part2[] = {
     // save the unwinding context in r14 for later
     0x4D, 0x89, 0xC6, // mov    r14,r8
@@ -560,6 +643,7 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x4C, 0x89, 0xC7, // mov    rdi,r8
     0x41, 0xFF, 0xD4  // call   r12
   };
+#endif
   
   tinyinst_.WriteCode(module, assembly_part2, sizeof(assembly_part2));
 
@@ -571,6 +655,48 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     WritePersonalityLookup(module);
   }
 
+#ifdef ARM64
+  unsigned char assembly_part3[] = {
+    // libunwind::UnwindCursor::setReg(contex, UNW_REG_IP, value)
+      0xe2, 0x03, 0x00, 0xaa, // mov x2, x0
+      0x01, 0x00, 0x80, 0x12, // mov x1, -1
+      0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
+      // sign pc (derived from libunwind unw_set_reg function,
+      // might change in the future)
+      0x19, 0x84, 0x40, 0xf9, // ldr x25, [x0, #0x108]
+      0x22, 0x07, 0xc1, 0xda, // pacib  x2, x25
+      0xa0, 0x02, 0x3f, 0xd6, // blr x21
+
+    // libunwind::UnwindCursor::setInfoBasedOnIPRegister(context, false)
+      0x01, 0x00, 0x80, 0xd2, // mov x1, -1
+      0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
+      0x40, 0x03, 0x3f, 0xd6, // blr x26
+
+    // restore original personality parameters
+      0xbf, 0x03, 0x00, 0x91, // mov sp, fp
+      0xe0, 0x07, 0x43, 0xa9, // ldp x0, x1, [sp, #0x30]
+      0xe2, 0x0f, 0x42, 0xa9, // ldp x2, x3, [sp, #0x20]
+      0xe4, 0x17, 0x41, 0xa9, // ldp x4, x5, [sp, #0x10]
+      0xe6, 0x1f, 0x40, 0xa9, // ldp x6, x7, [sp, #0x00]
+
+      0x76, 0x00, 0x00, 0xb4, // cbz x22, no_original_personality
+      0xc0, 0x02, 0x3f, 0xd6, // blr x22
+      0x02, 0x00, 0x00, 0x14, // b end
+
+    // no_original_personality:
+      0x00, 0x01, 0x80, 0xd2, // mov x0, 8 (_URC_CONTINUE_UNWIND)
+
+    // end:
+      0xbf, 0x03, 0x00, 0x91, // mov sp, fp
+      0xf9, 0x6b, 0x44, 0xa9, // ldp x25, x26, [sp, #0x40]
+      0xf7, 0x63, 0x45, 0xa9, // ldp x23, x24, [sp, #0x50]
+      0xf5, 0x5b, 0x46, 0xa9, // ldp x21, x22, [sp, #0x60]
+      0xf3, 0x53, 0x47, 0xa9, // ldp x19, x20, [sp, #0x70]
+      0xfd, 0x7b, 0x48, 0xa9, // ldp fp, lr, [sp, #0x80]
+      0xff, 0x43, 0x02, 0x91, // add sp, sp, #0x90
+      0xc0, 0x03, 0x5f, 0xd6, // ret
+  };
+#else
   unsigned char assembly_part3[] = {
     // _Unwind_SetIP(context, modified_ip)
     0x4C, 0x89, 0xF7, // mov    rdi,r14
@@ -603,6 +729,7 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
     0x5D, // pop rbp
     0xC3 // ret
   };
+#endif
 
   tinyinst_.WriteCode(module, assembly_part3, sizeof(assembly_part3));
 
@@ -612,7 +739,32 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
 void UnwindGeneratorMacOS::WritePersonalityLookup(ModuleInfo* module) {
   UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
 
-  unsigned char x64_assembly[] = {
+#ifdef ARM64
+  unsigned char arch_specific_assembly[] = {
+      0xf8, 0x03, 0x00, 0xaa, // mov x24, x0
+      0xb9, 0x01, 0x00, 0x18, // ldr x25, bucket_mask
+      0x18, 0x03, 0x19, 0x8a, // and x24, x24, x25
+      0x73, 0x7a, 0x78, 0xf8, // ldr x19, [x19, x24, LSL#3]
+    // loop_start:
+      0x33, 0x01, 0x00, 0xb4, // cbz x19, not_found
+      0x76, 0x02, 0x40, 0xf9, // ldr x22, [x19]
+      0x1f, 0x00, 0x16, 0xeb, // cmp x0, x22
+      0x60, 0x00, 0x00, 0x54, // b.eq found
+      0x73, 0x0e, 0x40, 0xf9, // ldr x19, [x19, #0x18]
+      0xfb, 0xff, 0xff, 0x17, // b loop_start
+    // found:
+      0x60, 0x06, 0x40, 0xf9, // ldr x0, [x19, #0x8]
+      0x76, 0x0a, 0x40, 0xf9, // ldr x22, [x19, #0x10]
+      0x03, 0x00, 0x00, 0x14, // b end
+    // not_found:
+      0x60, 0x00, 0x20, 0xd4, // brk #3
+    // bucket_mask:
+      0x1f, 0x20, 0x03, 0xd5, // nop -> to be replaced with bucket number mask
+    // end:
+  };
+  size_t mask_offset = sizeof(arch_specific_assembly) - 4;
+#else
+  unsigned char arch_specific_assembly[] = {
     0x48, 0x89, 0xC1, //mov rcx, rax
     0x48, 0x81, 0xE1, 0xAA, 0xAA, 0xAA, 0x0A, // and rcx,0xaaaaaaa, to be replaced
     0x4D, 0x8B, 0x3C, 0xCF, // mov r15,QWORD PTR [r15+rcx*8]
@@ -631,9 +783,10 @@ void UnwindGeneratorMacOS::WritePersonalityLookup(ModuleInfo* module) {
     0xCC // int3
   };
   size_t mask_offset = 6;
-  *(uint32_t *)(&x64_assembly[mask_offset]) = (LOOKUP_TABLE_BUCKETS - 1);
+#endif
+  *(uint32_t *)(&arch_specific_assembly[mask_offset]) = (LOOKUP_TABLE_BUCKETS - 1);
+  tinyinst_.WriteCode(module, arch_specific_assembly, sizeof(arch_specific_assembly));
   
-  tinyinst_.WriteCode(module, x64_assembly, sizeof(x64_assembly));
   size_t breakpoint_address = (size_t)tinyinst_.GetCurrentInstrumentedAddress(module) - 1;
   unwind_data->personality_breakpoint = breakpoint_address;
 }
@@ -696,14 +849,18 @@ void UnwindGeneratorMacOS::WriteLookupTable(ModuleInfo* module) {
     }
     
     size_t instrumented_ip = iter->first;
+#ifdef ARM64
+    size_t original_ip = iter->second.original_return_address;
+#else
     size_t original_ip = iter->second.original_return_address - 1;
+#endif
     size_t personality = iter->second.personality;
     size_t hash_bucket = instrumented_ip % LOOKUP_TABLE_BUCKETS;
     size_t previous_head = lookup_table->header_local[hash_bucket];
     
     size_t new_head = lookup_table->buffer_cur;
     lookup_table->header_local[hash_bucket] = new_head;
-    
+
     // printf("%zx -> %zx\n", instrumented_ip, original_ip);
     
     *((size_t *)local_buf_cur) = instrumented_ip;
