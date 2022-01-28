@@ -220,6 +220,7 @@ private:
   size_t register_frame_addr;
   size_t unwind_getip;
 #ifdef ARM64
+  size_t unwind_cursor_getReg;
   size_t unwind_cursor_setReg;
   size_t unwind_cursor_setInfoBasedOnIPRegister;
 #else

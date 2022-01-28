@@ -371,8 +371,12 @@ void UnwindGeneratorMacOS::OnModuleLoaded(void *module, char *module_name) {
     }
 
 #ifdef ARM64
+    unwind_cursor_getReg = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__ZN9libunwind12UnwindCursorINS_17LocalAddressSpaceENS_15Registers_arm64EE6getRegEi");
     unwind_cursor_setReg = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__ZN9libunwind12UnwindCursorINS_17LocalAddressSpaceENS_15Registers_arm64EE6setRegEim");
     unwind_cursor_setInfoBasedOnIPRegister = (size_t)tinyinst_.GetSymbolAddress(module, (char*)"__ZN9libunwind12UnwindCursorINS_17LocalAddressSpaceENS_15Registers_arm64EE24setInfoBasedOnIPRegisterEb");
+    if(!unwind_cursor_getReg) {
+      FATAL("Error locating unwind_cursor_setReg\n");
+    }
     if(!unwind_cursor_setReg) {
       FATAL("Error locating unwind_cursor_setReg\n");
     }
@@ -459,7 +463,8 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   }
 
 #ifdef ARM64
-  if(!register_frame_addr || !unwind_getip || !unwind_cursor_setReg || !unwind_cursor_setInfoBasedOnIPRegister) {
+  if(!register_frame_addr || !unwind_getip || !unwind_cursor_getReg ||
+     !unwind_cursor_setReg || !unwind_cursor_setInfoBasedOnIPRegister) {
 #else
   if(!register_frame_addr || !unwind_getip || !unwind_setip) {
 #endif
@@ -583,11 +588,12 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
 
     0xd6, 0x02, 0x16, 0xca, // eor x22, x22, x22
 
-    0xb3, 0x00, 0x00, 0x58, // ldr x19, #20; x19 becomes hashtable ptr
-    0xd4, 0x00, 0x00, 0x58, // ldr x20, #24; x20 becomes _Unwind_GetIP
-    0xf5, 0x00, 0x00, 0x58, // ldr x21, #28; x21 becomes libunwind::UnwindCursor::setReg
-    0x1a, 0x01, 0x00, 0x58, // ldr x26, #32; x26 becomes libunwind::UnwindCursor::setInfoBasedOnIPRegister
-    0x09, 0x00, 0x00, 0x14, // b #0x24
+    0xd3, 0x00, 0x00, 0x58, // ldr x19, #24; x19 becomes hashtable ptr
+    0xf4, 0x00, 0x00, 0x58, // ldr x20, #28; x20 becomes _Unwind_GetIP
+    0x15, 0x01, 0x00, 0x58, // ldr x21, #32; x21 becomes libunwind::UnwindCursor::setReg
+    0x39, 0x01, 0x00, 0x58, // ldr x25, #36; x25 becomes libunwind::UnwindCursor::getReg
+    0x5a, 0x01, 0x00, 0x58, // ldr x26, #40; x26 becomes libunwind::UnwindCursor::setInfoBasedOnIPRegister
+    0x0b, 0x00, 0x00, 0x14, // b #0x2c
   };
 #else
   unsigned char assembly_part1[] = {
@@ -619,11 +625,12 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
 
   tinyinst_.WriteCode(module, assembly_part1, sizeof(assembly_part1));
   tinyinst_.WritePointer(module, unwind_data->lookup_table.header_remote);
+  tinyinst_.WritePointer(module, unwind_getip);
 #ifdef ARM64
   tinyinst_.WritePointer(module, unwind_cursor_setReg);
+  tinyinst_.WritePointer(module, unwind_cursor_getReg);
   tinyinst_.WritePointer(module, unwind_cursor_setInfoBasedOnIPRegister);
 #else
-  tinyinst_.WritePointer(module, unwind_getip);
   tinyinst_.WritePointer(module, unwind_setip);
 #endif
 
@@ -657,18 +664,29 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
 
 #ifdef ARM64
   unsigned char assembly_part3[] = {
+    // x0 contains IP
+    // x22 contains PERSONALITY_VALUE
+    // x23 contains ptr to unwinding context
+
+    // save IP in tmp reg
+      0xf8, 0x03, 0x00, 0xaa, // mov x24, x0
+
+    // libunwind::UnwindCursor::getReg(contex, UNW_REG_SP)
+      0x21, 0x00, 0x80, 0x12, // mov w1, -2
+      0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
+      0x20, 0x03, 0x3f, 0xd6, // blr x25
+
+    // sign UNW_REG_IP with UNW_REG_SP as ctx
+      0xe2, 0x03, 0x18, 0xaa, // mov x2, x24
+      0x02, 0x04, 0xc1, 0xda, // pacib x2, x0
+
     // libunwind::UnwindCursor::setReg(contex, UNW_REG_IP, value)
-      0xe2, 0x03, 0x00, 0xaa, // mov x2, x0
       0x01, 0x00, 0x80, 0x12, // mov x1, -1
       0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
-      // sign pc (derived from libunwind unw_set_reg function,
-      // might change in the future)
-      0x19, 0x84, 0x40, 0xf9, // ldr x25, [x0, #0x108]
-      0x22, 0x07, 0xc1, 0xda, // pacib  x2, x25
       0xa0, 0x02, 0x3f, 0xd6, // blr x21
 
     // libunwind::UnwindCursor::setInfoBasedOnIPRegister(context, false)
-      0x01, 0x00, 0x80, 0xd2, // mov x1, -1
+      0x01, 0x00, 0x80, 0xd2, // mov x1, 0
       0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
       0x40, 0x03, 0x3f, 0xd6, // blr x26
 
@@ -741,9 +759,8 @@ void UnwindGeneratorMacOS::WritePersonalityLookup(ModuleInfo* module) {
 
 #ifdef ARM64
   unsigned char arch_specific_assembly[] = {
-      0xf8, 0x03, 0x00, 0xaa, // mov x24, x0
-      0xb9, 0x01, 0x00, 0x18, // ldr x25, bucket_mask
-      0x18, 0x03, 0x19, 0x8a, // and x24, x24, x25
+      0xb8, 0x01, 0x00, 0x18, // ldr w24, bucket_mask
+      0x18, 0x03, 0x00, 0x8a, // and x24, x24, x0
       0x73, 0x7a, 0x78, 0xf8, // ldr x19, [x19, x24, LSL#3]
     // loop_start:
       0x33, 0x01, 0x00, 0xb4, // cbz x19, not_found
