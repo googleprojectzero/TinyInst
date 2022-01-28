@@ -51,7 +51,11 @@ class UnwindGeneratorMacOS;
 // original_code_size * CODE_SIZE_MULTIPLIER +
 // JUMPTABLE_SIZE * child_ptr_size
 // for instrumented code
+#ifdef ARM64
+#define CODE_SIZE_MULTIPLIER 8
+#else
 #define CODE_SIZE_MULTIPLIER 4
+#endif
 
 typedef struct xed_decoded_inst_s xed_decoded_inst_t;
 

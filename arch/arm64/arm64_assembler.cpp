@@ -31,7 +31,7 @@ uint32_t BREAKPOINT = 0xd4200000;
 // nop
 uint32_t NOP = 0xd503201f;
 
-// brl xzr
+// blr xzr
 uint32_t CRASH = 0xd63f03e0;
 
 uint32_t MRS_X0_NZCV = 0xd53b4200;
@@ -756,6 +756,9 @@ void Arm64Assembler::InstrumentCall(
       uint32_t bl_instr = bl(0, 8);
       tinyinst_.WriteCode(module, &bl_instr, sizeof(bl_instr));
 
+      size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+      tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
+
       uint32_t branch_instr = b(0, 0);
       // jmp return_address
       tinyinst_.WriteCode(module, &branch_instr, sizeof(branch_instr));
@@ -812,6 +815,9 @@ void Arm64Assembler::InstrumentCall(
         uint32_t bl_instr = bl(0, 8);
         tinyinst_.WriteCode(module, &bl_instr, sizeof(bl_instr));
 
+        size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+        tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
+
         uint32_t branch_instr = b(0, 0);
         // jmp return_address
         tinyinst_.WriteCode(module, &branch_instr, sizeof(branch_instr));
@@ -836,6 +842,9 @@ void Arm64Assembler::InstrumentCall(
         FixInstructionAndOutput(module, inst,
                                 (unsigned char *)(code_ptr + last_offset),
                                 (unsigned char *)(address + last_offset));
+
+        size_t translated_return_address = tinyinst_.GetCurrentInstrumentedAddress(module);
+        tinyinst_.OnReturnAddress(module, (size_t)return_address, translated_return_address);
 
         uint32_t branch_instr = b(0, 0);
         tinyinst_.WriteCode(module, &branch_instr, sizeof(branch_instr));
