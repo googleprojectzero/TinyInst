@@ -21,12 +21,12 @@ limitations under the License.
 * TinyInst may not always detect the exact time of target process exit. As a consequence the `OnProcessExit()` callback might have a maximum delay of 100ms. In the future, additional APIs (e.g. kqueue) could be used to detect process exit accurately.
 * TinyInst on macOS is affected by the same custom exceptions-handling issues as the Windows version. For the description of the issue and workarounds, see [this section in the readme](https://github.com/googleprojectzero/TinyInst#return-address-patching)
 * TinyInst leverages read-only pages to redirect the instruction pointer to the
-instrumented code if the original, uninstrumented, code is invoked. The code
-section of a module is aligned to 4k pages, however, the M1 uses 16k pages.
-TinyInst instruments adjacent modules automatically until their code section
+instrumented code if the original, uninstrumented, code is invoked. On macOS running on ARM chips, the code
+section of the modules inside the Dyld cache is aligned to 4k pages, however, ARM uses 16k pages. This makes it more difficult to instrument
+individual modules inside the Dyld cache. TinyInst currently solves ths by instrumenting adjacent modules automatically until their code section
 aligns to 16k to ensure that not only parts of a module is instrumented. This
 behavior is controlled by the `-page_extend_modules` flag which is set to
-`true` by default on M1.
+`true` by default on M1. In some cases it might be possible to turn off this flag resulting in better performance.
 
 ## TinyInst and Guard Malloc
 
