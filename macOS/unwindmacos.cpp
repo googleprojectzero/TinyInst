@@ -473,6 +473,10 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   
   size_t code_size_before = module->instrumented_code_allocated;
 
+#if ARM64
+  AlignCodeMemory(module);
+#endif
+
   size_t personality = WriteCustomPersonality(module);
   size_t cie_address = WriteCIE(module, "zP", personality);
   
@@ -488,20 +492,15 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
     tinyinst_.WritePointer(module, *it);
   }
   size_t fde_array_end = tinyinst_.GetCurrentInstrumentedAddress(module);
+
+#if ARM64
+  AlignCodeMemory(module);
+#endif
  
   // address from which the target will continue execution
   // now it's the same as fde_array_end, but that might change in the future
   // if other stuff gets written before the next line
   size_t continue_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-#if ARM64
-  if(continue_address & 0x3) {
-    for(int i = 0; i < (4 - (continue_address & 0x3)); ++i) {
-      unsigned char padding = 0xcc;
-      tinyinst_.WriteCode(module, (void*)&padding, 1);
-    }
-  }
-  continue_address += (4 - (continue_address & 0x3));
-#endif
 
   size_t assembly_offset = module->instrumented_code_allocated;
   
@@ -685,8 +684,8 @@ size_t UnwindGeneratorMacOS::WriteCustomPersonality(ModuleInfo* module) {
       0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
       0xa0, 0x02, 0x3f, 0xd6, // blr x21
 
-    // libunwind::UnwindCursor::setInfoBasedOnIPRegister(context, false)
-      0x01, 0x00, 0x80, 0xd2, // mov x1, 0
+    // libunwind::UnwindCursor::setInfoBasedOnIPRegister(context, true)
+      0x21, 0x00, 0x80, 0xd2, // mov x1, 1
       0xe0, 0x03, 0x17, 0xaa, // mov x0, x23
       0x40, 0x03, 0x3f, 0xd6, // blr x26
 
@@ -902,3 +901,14 @@ void UnwindGeneratorMacOS::WriteLookupTable(ModuleInfo* module) {
   data->return_addresses.clear();
   free(local_buf);
 }
+
+
+#ifdef ARM64
+void UnwindGeneratorMacOS::AlignCodeMemory(ModuleInfo *module) {
+  size_t ls2b = module->instrumented_code_allocated & 0x3;
+  if(ls2b) {
+    uint32_t padding = 0xcccccccc;
+    tinyinst_.WriteCode(module, (void*)&padding, 4 - ls2b);
+  }
+}
+#endif

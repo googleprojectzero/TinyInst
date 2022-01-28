@@ -216,7 +216,11 @@ private:
 
   size_t AllocateLookupTableChunk();
   void WriteLookupTable(ModuleInfo* module);
-  
+
+#ifdef ARM64
+  void AlignCodeMemory(ModuleInfo *module);
+#endif
+
   size_t register_frame_addr;
   size_t unwind_getip;
 #ifdef ARM64
