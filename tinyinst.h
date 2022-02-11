@@ -19,6 +19,7 @@ limitations under the License.
 
 #include <list>
 #include <set>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -241,6 +242,8 @@ private:
 
   bool instrumentation_disabled;
   bool instrument_modules_on_load;
+  
+  bool full_address_map;
 
   PatchModuleEntriesValue patch_module_entries;
 
@@ -285,6 +288,9 @@ class ModuleInfo {
   char *instrumented_code_remote_previous;
 
   std::unordered_map<uint32_t, uint32_t> basic_blocks;
+
+  // instrumented address to original address
+  std::map<size_t, size_t> address_map;
 
   size_t br_indirect_newtarget_global;
 

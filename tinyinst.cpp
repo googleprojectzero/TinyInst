@@ -69,6 +69,7 @@ void ModuleInfo::ClearInstrumentation() {
   instrumented_code_allocated = 0;
 
   basic_blocks.clear();
+  address_map.clear();
 
   br_indirect_newtarget_global = 0;
   br_indirect_newtarget_list.clear();
@@ -552,6 +553,12 @@ void TinyInst::TranslateBasicBlock(char *address,
       (size_t)address + offset,
       GetCurrentInstrumentedAddress(module));
 
+    if(full_address_map) {
+      size_t original_address = (size_t)address + offset;
+      size_t instrumented_address = GetCurrentInstrumentedAddress(module);
+      module->address_map[instrumented_address] = original_address;
+    }
+    
     // instruction-level-instrumentation
     InstructionResult instrumentation_result =
       InstrumentInstruction(module, inst, (size_t)address, (size_t)address + offset);
@@ -693,6 +700,11 @@ ModuleInfo *TinyInst::GetModuleFromInstrumented(size_t address) {
 }
 
 void TinyInst::OnCrashed(Exception *exception_record) {
+  // clear known entries on crash
+  for (auto module : instrumented_modules) {
+    module->entry_offsets.clear();
+  }
+  
   char *address = (char *)exception_record->ip;
 
   printf("Exception at address %p\n", static_cast<void*>(address));
@@ -707,6 +719,14 @@ void TinyInst::OnCrashed(Exception *exception_record) {
   printf("Exception in instrumented module %s %p\n", module->module_name.c_str(), module->module_header);
   size_t offset = (size_t)address - (size_t)module->instrumented_code_remote;
 
+  if(full_address_map && !module->address_map.empty()) {
+    auto iter = module->address_map.upper_bound((size_t)address);
+    if(iter != module->address_map.begin()) {
+      --iter;
+      printf("Original exception address (could be incorrect): %p\n", (void *)iter->second);
+    }
+  }
+  
   printf("Code before:\n");
   size_t offset_from;
   if (offset < 10) offset_from = 0;
@@ -1115,6 +1135,8 @@ void TinyInst::Init(int argc, char **argv) {
 
   trace_basic_blocks = GetBinaryOption("-trace_basic_blocks", argc, argv, false);
   trace_module_entries = GetBinaryOption("-trace_module_entries", argc, argv, false);
+  
+  full_address_map = GetBinaryOption("-full_address_map", argc, argv, false);
 
 #if defined(ARM64) && defined(__APPLE__)
   page_extend_modules = GetBinaryOption("-page_extend_modules", argc, argv, true);
