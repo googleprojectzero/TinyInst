@@ -187,6 +187,8 @@ The value of the flag controls where to searh for these pointers. Warning: Enabl
 
 `-trace_module_entries` - prints all entries into instrumented code
 
+`-full_address_map` - Maintains an instruction-level map of addresses in instrumented code to addresses in the original code. Memory-heavy, but useful for debugging.
+
 ### Target method and persistence
 
 TinyInst allows user to define a target method. If a target method is defined, no code will be instrumented (everything will run natively) until the target method is reached for the first time. Additionally, TinyInst will break execution on the target method entry and exit.
