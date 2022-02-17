@@ -1201,7 +1201,7 @@ void TinyInst::Init(int argc, char **argv) {
     ModuleInfo *new_module = new ModuleInfo();
     new_module->module_name = module_name;
     instrumented_modules.push_back(new_module);
-    SAY("--- %s\n", module_name);
+    // SAY("--- %s\n", module_name);
   }
 
   char *option;
