@@ -145,6 +145,9 @@ void MachTarget::ReplyToException(mach_msg_header_t *rpl) {
                 MACH_PORT_NULL);           /* notify port, unused */
 
   if (krt != MACH_MSG_SUCCESS) {
+    // the target could be terminated at this point, check if that's the case
+    if(!IsTaskValid() || !IsExceptionPortValid()) return;
+
     FATAL("Error (%s) sending reply to exception port\n", mach_error_string(krt));
   }
 }
