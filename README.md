@@ -176,8 +176,7 @@ Called when instrumentation data is no longer valid and needs to be cleared. Not
 
 `-stack_offset` (default=0) When saving context on the stack, leave this many bytes on top of the stack (before stack pointer) unchanged.
 
-`-patch_module_entries [off|data|code|all]` [Windows only for now] attempts to resolve slowdowns due to excessive module entries by searching for pointers to previously detected entrypoints and replacing them with their instrumented counterparts.
-The value of the flag controls where to searh for these pointers. Warning: Enabling this could potentially introduce instabilities to the target.
+`-patch_module_entries [off|data|code|all]` Attempts to resolve slowdowns due to excessive module entries by searching for pointers to previously detected entrypoints and replacing them with their instrumented counterparts. The value of the flag controls where to searh for these pointers. Warning: Enabling this could potentially introduce instabilities to the target.
 
 ### Debugging related
 

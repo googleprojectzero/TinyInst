@@ -936,6 +936,64 @@ void Debugger::ProtectCodeRanges(std::list<AddressRange> *executable_ranges) {
   }
 }
 
+void Debugger::PatchPointersRemote(void *base_address, std::unordered_map<size_t, size_t>& search_replace) {
+  mach_header_64 mach_header;
+  GetMachHeader(base_address, &mach_header);
+
+  void *load_commands_buffer = NULL;
+  GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
+
+  segment_command_64 *text_cmd = NULL;
+  if (!GetLoadCommand(mach_header, load_commands_buffer, LC_SEGMENT_64, "__TEXT", &text_cmd)) {
+    FATAL("Unable to find __TEXT command in ExtractCodeRanges\n");
+  }
+  uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
+
+  uint64_t load_cmd_addr = (uint64_t)load_commands_buffer;
+  for (uint32_t i = 0; i < mach_header.ncmds; ++i) {
+    load_command *load_cmd = (load_command *)load_cmd_addr;
+    if (load_cmd->cmd == LC_SEGMENT_64) {
+      segment_command_64 *segment_cmd = (segment_command_64*)load_cmd;
+
+      if (!strcmp(segment_cmd->segname, "__PAGEZERO")
+          || !strcmp(segment_cmd->segname, "__LINKEDIT")) {
+        load_cmd_addr += load_cmd->cmdsize;
+        continue;
+      }
+
+      mach_vm_address_t segment_start_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide;
+      mach_vm_address_t segment_end_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide + segment_cmd->vmsize;
+
+      PatchPointersRemote(segment_start_addr, segment_end_addr, search_replace);
+    }
+
+    load_cmd_addr += load_cmd->cmdsize;
+  }
+
+  free(load_commands_buffer);
+}
+
+void Debugger::PatchPointersRemote(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace) {
+  size_t module_size = max_address - min_address;
+  char* buf = (char *)malloc(module_size);
+  RemoteRead((void *)min_address, buf, module_size);
+
+  size_t remote_address = min_address;
+  for (size_t i = 0; i < (module_size - child_ptr_size + 1); i++) {
+    size_t ptr = *(size_t *)(buf + i);
+    auto iter = search_replace.find(ptr);
+    if (iter != search_replace.end()) {
+      // printf("patching entry %zx at address %zx\n", (size_t)ptr, remote_address);
+      size_t fixed_ptr = (size_t)iter->second;
+      RemoteWrite((void *)remote_address, &fixed_ptr, child_ptr_size);
+    }
+    remote_address += 1;
+  }
+
+  free(buf);
+}
+
+
 void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max_address) {
   mach_header_64 mach_header;
   GetMachHeader(base_address, &mach_header);

@@ -254,6 +254,9 @@ protected:
 
   void ProtectCodeRanges(std::list<AddressRange> *executable_ranges);
 
+  void PatchPointersRemote(void *base_address, std::unordered_map<size_t, size_t>& search_replace);
+  void PatchPointersRemote(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
+  
   // returns address in (potentially) instrumented code
   virtual size_t GetTranslatedAddress(size_t address) { return address; }
   

@@ -933,7 +933,7 @@ void TinyInst::PatchModuleEntries(ModuleInfo* module) {
     search_replace[original_address] = translated_address;
   }
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) || defined(ARM64) && !defined(__APPLE__)
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
 
   // patching exception handler addresses on x86 windows
   // interferes with SafeSEH. A simple way around it for now
@@ -956,8 +956,10 @@ void TinyInst::PatchModuleEntries(ModuleInfo* module) {
     PatchPointersRemote(module->min_address, module->max_address, search_replace);
   }
 
-#else
-  FATAL("Not implemented");
+#elif defined(__APPLE__)
+  if (patch_module_entries & PatchModuleEntriesValue::DATA) {
+    PatchPointersRemote(module->module_header,search_replace);
+  }
 #endif
 
   if (patch_module_entries & PatchModuleEntriesValue::CODE) {
