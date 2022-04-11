@@ -1570,6 +1570,16 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
     dbg_continue_needed = false;
     dbg_reply_needed = false;
 
+    if(target_memory_limit && alive && !killing_target) {
+      vm_size_t mem_size = mach_target->MemSize();
+      if(mem_size > target_memory_limit) {
+        WARN("Target exceeded memory limit");
+        task_suspend(mach_target->Task());
+        dbg_continue_needed = true;
+        return DEBUGGER_HANGED;
+      }
+    }
+
     uint64_t begin_time = GetCurTime();
     kern_return_t krt = mach_target->WaitForException(std::min(timeout, (uint32_t)100),
                                                       request_buffer,
@@ -1603,6 +1613,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
 
     task_suspend(mach_target->Task());
     dbg_continue_needed = true;
+
 
     /* mach_exc_server calls catch_mach_exception_raise
        HandleExceptionInternal returns in ret_HandleExceptionInternal */
@@ -1996,4 +2007,8 @@ void Debugger::Init(int argc, char **argv) {
           dlsym(RTLD_DEFAULT, "_dyld_process_info_for_each_image");
   m_dyld_process_info_release =
       (void (*)(void *info))dlsym(RTLD_DEFAULT, "_dyld_process_info_release");
+
+  target_memory_limit = 0;
+  option = GetOption("-mem_limit", argc, argv);
+  if (option) target_memory_limit = (uint64_t)strtoul(option, NULL, 0) * 1024 * 1024;
 }

@@ -44,6 +44,7 @@ public:
   mach_port_t ExceptionPort() { return exception_port; }
 
   vm_size_t PageSize();
+  vm_size_t MemSize();
 
   kern_return_t BasicInfo(mach_task_basic_info *info);
   void GetRegionSubmapInfo(mach_vm_address_t *region_address,

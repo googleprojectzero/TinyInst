@@ -407,6 +407,9 @@ private:
   
   uint64_t target_return_value;
 
+  // memory limit in bytes
+  uint64_t target_memory_limit;
+
   //DYLD SPI
   void *(*m_dyld_process_info_create)(task_t task,
                                       uint64_t timestamp,
