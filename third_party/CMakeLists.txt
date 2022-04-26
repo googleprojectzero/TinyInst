@@ -45,8 +45,18 @@ else()
   set(XED_HOST_CPU "")
 endif()
 
+# Attempt to fix building XED on VS2022 and later
+# Because having a custom build system is just awesome :-/
+if(MSVC_VERSION AND (MSVC_VERSION GREATER 1929))
+  get_filename_component(VS_BIN_PATH "${CMAKE_C_COMPILER}" DIRECTORY)
+  set(VS_LIB_EXE "${VS_BIN_PATH}/lib.exe")
+  set(XED_ADDITONAL_FLAGS --cc ${CMAKE_C_COMPILER} --cxx ${CMAKE_CXX_COMPILER} --linker ${CMAKE_LINKER} --ar ${VS_LIB_EXE})
+else()
+  set(XED_ADDITONAL_FLAGS "")
+endif()
+
 set (BUILD_XED_COMMAND
-     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xed/mfile.py ${XED_HOST_CPU}
+     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xed/mfile.py ${XED_HOST_CPU} ${XED_ADDITONAL_FLAGS}
 )
 
 if (WIN32)
