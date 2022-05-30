@@ -1267,7 +1267,7 @@ void Debugger::OnProcessCreated() {
         if (attach_mode || IsDyld((void*)mach_header_addr)) {
           char *base_name = strrchr((char*)path, '/');
           base_name = (base_name) ? base_name + 1 : (char*)path;
-          OnModuleLoaded((void*)mach_header_addr, (char*)path);
+          OnModuleLoaded((void*)mach_header_addr, (char*)base_name);
         }
       });
 
@@ -1858,7 +1858,6 @@ void Debugger::AttachToProcess() {
   killing_target = false;
   dbg_continue_needed = false;
   dbg_reply_needed = false;
-  child_entrypoint_reached = false;
   target_reached = false;
 
   DeleteBreakpoints();
@@ -1880,6 +1879,7 @@ void Debugger::AttachToProcess() {
 DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
   attach_mode = true;
   mach_target = new MachTarget(pid);
+  child_entrypoint_reached = true;
 
   AttachToProcess();
   return Continue(timeout);
@@ -1893,6 +1893,7 @@ DebuggerStatus Debugger::Run(char *cmd, uint32_t timeout) {
 
 DebuggerStatus Debugger::Run(int argc, char **argv, uint32_t timeout) {
   attach_mode = false;
+  child_entrypoint_reached = false;
 
   StartProcess(argc, argv);
   AttachToProcess();
