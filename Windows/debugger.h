@@ -77,7 +77,11 @@ public:
     return last_exception;
   }
 
+  char * script;
+
 protected:
+
+  DWORD processID;
 
   enum MemoryProtection {
     READONLY,
