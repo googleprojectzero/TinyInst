@@ -18,4 +18,5 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+std::string find_dyld_map(void);
 std::map<std::string, std::vector<std::string>> parse_dyld_map_file(const std::string &path);
