@@ -34,6 +34,35 @@ static bool is_page_aligned(uint64_t addr, uint64_t page_size = 0x4000) {
   return !(addr & (page_size-1));
 }
 
+std::string find_dyld_map() {
+  std::string name = "/System/Library/dyld/dyld_shared_cache_arm64e.map";
+
+  // from dyld4::APIs::dyld_shared_cache_find_iterate_text
+  std::string cryptexPrefixes[] = {
+    "/System/Volumes/Preboot/Cryptexes/OS",
+    "/private/preboot/Cryptexes/OS",
+    "/System/Cryptexes/OS"
+  };
+
+  auto check = [](const std::string &path) {
+    std::ifstream stream(path);
+    return !stream.fail();
+  };
+
+  if (check(name)) {
+    return name;
+  }
+
+  for (auto i = 0; i < 3; i++) {
+    std::string cryptex = cryptexPrefixes[i] + name;
+    if (check(cryptex)) {
+      return cryptex;
+    }
+  }
+
+  FATAL("Unable to locate dyld_shared_cache");
+}
+
 std::map<std::string, std::vector<std::string>> parse_dyld_map_file(const std::string &path) {
   std::ifstream cache_map(path);
 

@@ -33,7 +33,6 @@ limitations under the License.
 #if defined(__APPLE__) && defined(ARM64)
   #include <set>
   #include "macOS/dyld_cache_map_parser.h"
-  #define DYLD_MAP_FILE "/System/Library/dyld/dyld_shared_cache_arm64e.map"
 #endif
 
 ModuleInfo::ModuleInfo() {
@@ -1168,7 +1167,7 @@ void TinyInst::Init(int argc, char **argv) {
   std::set <std::string> new_uniq_mod_names;
   if(page_extend_modules) {
     std::map<std::string, std::vector<std::string>> mod_grp =
-      parse_dyld_map_file(DYLD_MAP_FILE);
+      parse_dyld_map_file(find_dyld_map());
 
     if (mod_grp.empty()) {
       FATAL("Module group is expected to have entries.");
