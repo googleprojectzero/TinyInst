@@ -1480,13 +1480,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout, bool killing)
       dbg_continue_needed = false;
     }
 
-    if (timeout == 0) {
-      if(attach_mode) {
-        return DEBUGGER_PROCESS_EXIT;
-      } else {
-        return DEBUGGER_HANGED;
-    }
-  }
+    if (timeout == 0) return DEBUGGER_HANGED;
 
     if (!wait_ret) {
       //printf("WaitForDebugEvent returned 0\n");
@@ -1745,7 +1739,6 @@ DebuggerStatus Debugger::Kill() {
 // attaches to an active process
 DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
   attach_mode = true;
-  processID = pid;
 
   if (!DebugActiveProcess(pid)) {
     DWORD error_code = GetLastError();

@@ -81,8 +81,6 @@ public:
 
 protected:
 
-  DWORD processID;
-
   enum MemoryProtection {
     READONLY,
     READWRITE,
