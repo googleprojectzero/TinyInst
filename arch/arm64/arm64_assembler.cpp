@@ -409,9 +409,16 @@ void Arm64Assembler::TranslateJmp(ModuleInfo *module, ModuleInfo *target_module,
   tinyinst_.InstrumentEdge(module, target_module, breakpoint_info.source_bb,
                            original_target);
 
+  size_t ldr_offset2 = module->instrumented_code_allocated;
+  ldr_lit_instr =
+      ldr_lit(static_cast<Register>(reg_num), 0, 64, /*is_signed*/ false);
+  tinyinst_.WriteCode(module, &ldr_lit_instr, sizeof(ldr_lit_instr));
+  
   uint32_t br_instr = br(static_cast<Register>(reg_num));
   tinyinst_.WriteCode(module, &br_instr, sizeof(br_instr));
+  
   FixOffset(module, ldr_offset, module->instrumented_code_allocated);
+  FixOffset(module, ldr_offset2, module->instrumented_code_allocated + 8);
 }
 
 static int32_t GetRipRelativeOffset(Instruction &inst) {
@@ -863,7 +870,7 @@ void Arm64Assembler::HandleBasicBlockEnd(
     const char *address, ModuleInfo *module, std::set<char *> *queue,
     std::list<std::pair<uint32_t, uint32_t>> *offset_fixes, Instruction &inst,
     const char *code_ptr, size_t offset, size_t last_offset) {
-
+  
   if (IsReturnInstruction(inst.instr.opcode)) {
     InstrumentRet(address, module, queue, offset_fixes, inst, code_ptr, offset,
                   last_offset);

@@ -783,7 +783,9 @@ bool TinyInst::TryExecuteInstrumented(char *address) {
   if (!GetRegion(module, (size_t)address)) return false;
 
   if (trace_module_entries) {
-    printf("TRACE: Entered module %s at address %p\n", module->module_name.c_str(), static_cast<void*>(address));
+    printf("TRACE: Entered module %s at address %p, offset %zx\n",
+           module->module_name.c_str(), static_cast<void*>(address),
+           (size_t)address - (size_t)module->module_header );
   }
   if (patch_module_entries) {
     size_t entry_offset = (size_t)address - module->min_address;
