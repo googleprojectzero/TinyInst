@@ -159,7 +159,7 @@ bool CoverageContains(Coverage &coverage1, Coverage &coverage2) {
 }
 
 
-void WriteCoverage(Coverage& coverage, char *filename) {
+void WriteCoverage(Coverage& coverage, const char *filename) {
   FILE *fp = fopen(filename, "w");
   if (!fp) {
     printf("Error opening %s\n", filename);
@@ -169,7 +169,10 @@ void WriteCoverage(Coverage& coverage, char *filename) {
     for (auto offsetiter = iter->offsets.begin();
          offsetiter != iter->offsets.end(); offsetiter++)
     {
-      fprintf(fp, "%s+0x%llx\n", iter->module_name.c_str(), *offsetiter);
+      // skip cmp and other special coverage types
+      if(*offsetiter & 0x8000000000000000ULL) continue;
+      
+      fprintf(fp, "%s+%llx\n", iter->module_name.c_str(), *offsetiter);
     }
   }
   fclose(fp);
