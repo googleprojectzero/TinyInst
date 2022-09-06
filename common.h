@@ -76,7 +76,7 @@ char *GetOption(const char *name, int argc, char** argv);
 void GetOptionAll(const char *name, int argc, char** argv, std::list<char *> *results);
 bool GetBinaryOption(const char *name, int argc, char** argv, bool default_value);
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-	DWORD FindProcessId(char * process_name);
+    DWORD FindProcessId(char * process_name);
 #endif
 int GetIntOption(const char *name, int argc, char** argv, int default_value);
 
