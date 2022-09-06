@@ -1471,7 +1471,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout, bool killing)
     uint64_t time_elapsed = end_time - begin_time;
     timeout = ((uint64_t)timeout >= time_elapsed) ? timeout - (uint32_t)time_elapsed : 0;
 
-    //printf("timeout: %u\n", timeout);
+    // printf("timeout: %u\n", timeout);
     // printf("time: %lld\n", get_cur_time_us());
 
     if (wait_ret) {
@@ -1491,7 +1491,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout, bool killing)
 
     thread_id = DebugEv->dwThreadId;
 
-    //printf("eventCode: %x\n", DebugEv->dwDebugEventCode);
+    // printf("eventCode: %x\n", DebugEv->dwDebugEventCode);
 
     switch (DebugEv->dwDebugEventCode)
     {
@@ -1808,20 +1808,14 @@ DebuggerStatus Debugger::Continue(uint32_t timeout) {
     dbg_last_status = DEBUGGER_TARGET_START;
     return dbg_last_status;
   }
-  if (script != NULL) {
-     HANDLE thread_handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)system, script, 0, NULL);
-     CloseHandle(thread_handle);
-  }
 
   dbg_last_status = DebugLoop(timeout);
 
   if (dbg_last_status == DEBUGGER_PROCESS_EXIT) {
-    if (!attach_mode) {
-      CloseHandle(child_handle);
-      CloseHandle(child_thread_handle);
-      child_handle = NULL;
-      child_thread_handle = NULL;
-    }
+    CloseHandle(child_handle);
+    CloseHandle(child_thread_handle);
+    child_handle = NULL;
+    child_thread_handle = NULL;
   }
 
   return dbg_last_status;
