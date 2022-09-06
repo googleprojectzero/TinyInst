@@ -76,9 +76,7 @@ public:
   Exception GetLastException() {
     return last_exception;
   }
-
-  char * script;
-
+  
 protected:
 
   enum MemoryProtection {
