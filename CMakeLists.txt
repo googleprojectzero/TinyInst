@@ -63,7 +63,7 @@ set (cross_platform_files
      unwind.h
      bridge.cc
      bridge.h
-     shim.cpp
+     shim.cc
      shim.h
 )
 
