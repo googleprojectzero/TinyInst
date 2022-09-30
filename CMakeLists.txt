@@ -61,6 +61,10 @@ set (cross_platform_files
      litecov.h
      litecov.cpp
      unwind.h
+     bridge.cc
+     bridge.h
+     shim.cpp
+     shim.h
 )
 
 if (WIN32)

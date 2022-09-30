@@ -1,1 +1,5 @@
 build
+bridge.cc
+bridge.h
+shim.cc
+shim.h

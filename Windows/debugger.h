@@ -26,7 +26,6 @@ limitations under the License.
 #include "windows.h"
 #include "arch/x86/reg.h"
 
-
 enum DebuggerStatus {
   DEBUGGER_NONE,
   DEBUGGER_CONTINUE,
@@ -43,20 +42,25 @@ struct SavedRegisters {
 };
 
 class Debugger {
-public:
-
-  virtual void Init(int argc, char **argv);
+ public:
+  virtual void   Init(int argc, char **argv);
   DebuggerStatus Run(char *cmd, uint32_t timeout);
   DebuggerStatus Run(int argc, char **argv, uint32_t timeout);
   DebuggerStatus Kill();
   DebuggerStatus Continue(uint32_t timeout);
   DebuggerStatus Attach(unsigned int pid, uint32_t timeout);
 
-  bool IsTargetAlive() { return (child_handle != NULL); };
-  bool IsTargetFunctionDefined() { return target_function_defined; }
+  bool IsTargetAlive() {
+    return (child_handle != NULL);
+  };
+  bool IsTargetFunctionDefined() {
+    return target_function_defined;
+  }
 
-  uint64_t GetTargetReturnValue() { return target_return_value; }
-  
+  uint64_t GetTargetReturnValue() {
+    return target_return_value;
+  }
+
   enum ExceptionType {
     BREAKPOINT,
     ACCESS_VIOLATION,
@@ -67,30 +71,25 @@ public:
 
   struct Exception {
     ExceptionType type;
-    void *ip;
-    bool maybe_write_violation;
-    bool maybe_execute_violation;
-    void *access_address;
+    void         *ip;
+    bool          maybe_write_violation;
+    bool          maybe_execute_violation;
+    void         *access_address;
   };
 
   Exception GetLastException() {
     return last_exception;
   }
 
-protected:
-
-  enum MemoryProtection {
-    READONLY,
-    READWRITE,
-    READEXECUTE,
-    READWRITEEXECUTE
-  };
+ protected:
+  enum MemoryProtection { READONLY, READWRITE, READEXECUTE, READWRITEEXECUTE };
 
   virtual void OnModuleLoaded(void *module, char *module_name);
   virtual void OnModuleUnloaded(void *module);
-  virtual void OnTargetMethodReached() {}
+  virtual void OnTargetMethodReached() {
+  }
   virtual void OnProcessCreated();
-  virtual void OnProcessExit() {};
+  virtual void OnProcessExit(){};
   virtual void OnEntrypoint();
 
   // should return true if the exception has been handled
@@ -98,30 +97,31 @@ protected:
     return false;
   }
 
-  virtual void OnCrashed(Exception *exception_record) { }
+  virtual void OnCrashed(Exception *exception_record) {
+  }
 
   void *GetModuleEntrypoint(void *base_address);
-  void ReadStack(void *stack_addr, void **buffer, size_t numitems);
-  void WriteStack(void *stack_addr, void **buffer, size_t numitems);
-  void GetImageSize(void *base_address, size_t *min_address, size_t *max_address);
+  void  ReadStack(void *stack_addr, void **buffer, size_t numitems);
+  void  WriteStack(void *stack_addr, void **buffer, size_t numitems);
+  void  GetImageSize(void *base_address, size_t *min_address,
+                     size_t *max_address);
 
   // helper functions
-  void *RemoteAllocateNear(uint64_t region_min,
-    uint64_t region_max,
-    size_t size,
-    MemoryProtection protection,
-    bool use_shared_memory = false);
+  void *RemoteAllocateNear(uint64_t region_min, uint64_t region_max,
+                           size_t size, MemoryProtection protection,
+                           bool use_shared_memory = false);
 
-  void ExtractCodeRanges(void *module_base,
-                         size_t min_address,
-                         size_t max_address,
+  void ExtractCodeRanges(void *module_base, size_t min_address,
+                         size_t                   max_address,
                          std::list<AddressRange> *executable_ranges,
-                         size_t *code_size);
+                         size_t                  *code_size);
 
   void ProtectCodeRanges(std::list<AddressRange> *executable_ranges);
 
   // returns address in (potentially) instrumented code
-  virtual size_t GetTranslatedAddress(size_t address) { return address; }
+  virtual size_t GetTranslatedAddress(size_t address) {
+    return address;
+  }
 
   void RemoteFree(void *address, size_t size);
   void RemoteWrite(void *address, void *buffer, size_t size);
@@ -129,107 +129,107 @@ protected:
   void RemoteProtect(void *address, size_t size, MemoryProtection protect);
 
   size_t GetRegister(Register r);
-  void SetRegister(Register r, size_t value);
+  void   SetRegister(Register r, size_t value);
 
-  void *GetTargetMethodAddress() { return target_address;  }
+  void *GetTargetMethodAddress() {
+    return target_address;
+  }
 
-  DWORD GetProcOffset(HMODULE module, const char* name); 
+  DWORD GetProcOffset(HMODULE module, const char *name);
 
-  void SaveRegisters(SavedRegisters* registers);
-  void RestoreRegisters(SavedRegisters* registers);
+  void SaveRegisters(SavedRegisters *registers);
+  void RestoreRegisters(SavedRegisters *registers);
 
-  void GetExceptionHandlers(size_t module_haeder, std::unordered_set <size_t>& handlers);
+  void GetExceptionHandlers(size_t                      module_haeder,
+                            std::unordered_set<size_t> &handlers);
 
-  void PatchPointersRemote(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
-  template<typename T>
-  void PatchPointersRemoteT(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
+  void PatchPointersRemote(size_t min_address, size_t max_address,
+                           std::unordered_map<size_t, size_t> &search_replace);
+  template <typename T>
+  void PatchPointersRemoteT(size_t min_address, size_t max_address,
+                            std::unordered_map<size_t, size_t> &search_replace);
 
-private:
+ private:
   struct Breakpoint {
-    void *address;
-    int type;
+    void         *address;
+    int           type;
     unsigned char original_opcode;
   };
   std::list<Breakpoint *> breakpoints;
 
-  void StartProcess(char *cmd);
-  void GetProcessPlatform();
-  DebuggerStatus DebugLoop(uint32_t timeout, bool killing=false);
-  int HandleDebuggerBreakpoint(void *address);
-  void HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll);
+  void           StartProcess(char *cmd);
+  void           GetProcessPlatform();
+  DebuggerStatus DebugLoop(uint32_t timeout, bool killing = false);
+  int            HandleDebuggerBreakpoint(void *address);
+  void           HandleDllLoadInternal(LOAD_DLL_DEBUG_INFO *LoadDll);
   DebuggerStatus HandleExceptionInternal(EXCEPTION_RECORD *exception_record);
-  void HandleTargetReachedInternal();
-  void HandleTargetEnded();
-  char *GetTargetAddress(HMODULE module);
-  void AddBreakpoint(void *address, int type);
-  DWORD GetLoadedModules(HMODULE **modules);
-  void DeleteBreakpoints();
-  DWORD WindowsProtectionFlags(MemoryProtection protection);
-  DWORD GetImageSize(void *base_address);
-  void *RemoteAllocateBefore(uint64_t min_address,
-                             uint64_t max_address,
-                             size_t size,
-                             MemoryProtection protection);
-  void *RemoteAllocateAfter(uint64_t min_address,
-                            uint64_t max_address,
-                            size_t size,
-                            MemoryProtection protection);
+  void           HandleTargetReachedInternal();
+  void           HandleTargetEnded();
+  char          *GetTargetAddress(HMODULE module);
+  void           AddBreakpoint(void *address, int type);
+  DWORD          GetLoadedModules(HMODULE **modules);
+  void           DeleteBreakpoints();
+  DWORD          WindowsProtectionFlags(MemoryProtection protection);
+  DWORD          GetImageSize(void *base_address);
+  void *RemoteAllocateBefore(uint64_t min_address, uint64_t max_address,
+                             size_t size, MemoryProtection protection);
+  void *RemoteAllocateAfter(uint64_t min_address, uint64_t max_address,
+                            size_t size, MemoryProtection protection);
 
-protected:
-
+ protected:
   bool child_entrypoint_reached;
   bool target_reached;
 
   int32_t child_ptr_size = sizeof(void *);
 
-private:
+ private:
   HANDLE child_handle, child_thread_handle;
 
   HANDLE devnul_handle = INVALID_HANDLE_VALUE;
 
-  DEBUG_EVENT dbg_debug_event;
-  DWORD dbg_continue_status;
-  bool dbg_continue_needed;
+  DEBUG_EVENT    dbg_debug_event;
+  DWORD          dbg_continue_status;
+  bool           dbg_continue_needed;
   DebuggerStatus dbg_last_status;
 
   int wow64_target = 0;
 
-protected:
+ protected:
   bool target_function_defined;
   bool loop_mode;
   bool attach_mode;
   bool trace_debug_events;
 
-  bool sinkhole_stds;
+  bool     sinkhole_stds;
   uint64_t mem_limit;
   uint64_t cpu_aff;
 
-private:
+ private:
   // persistence related
-  int target_num_args;
-  uint64_t target_offset;
+  int         target_num_args;
+  uint64_t    target_offset;
   std::string target_module;
   std::string target_method;
-  int calling_convention;
-  void *target_address;
-  void *saved_sp;
-  void *saved_return_address;
-  void **saved_args;
+  int         calling_convention;
+  void       *target_address;
+  void       *saved_sp;
+  void       *saved_return_address;
+  void      **saved_args;
 
   uint64_t target_return_value;
 
   void RetrieveThreadContext();
   void CreateException(EXCEPTION_RECORD *win_exception_record,
-                       Exception *exception);
+                       Exception        *exception);
 
   Exception last_exception;
   // thread id of the last event
-  DWORD thread_id;
+  DWORD   thread_id;
   CONTEXT lcContext;
-  bool have_thread_context;
-  size_t allocation_granularity;
+  bool    have_thread_context;
+  size_t  allocation_granularity;
 
   bool force_dep;
 };
 
-#endif // DEBUGGER_H
+#endif  // DEBUGGER_H
