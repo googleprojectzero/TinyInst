@@ -887,8 +887,8 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   module->instrumented = true;
   FixCrossModuleLinks(module);
 
-  printf("Instrumented module %s, code size: %zd\n",
-         module->module_name.c_str(), module->code_size);
+  // printf("Instrumented module %s, code size: %zd\n",
+        //  module->module_name.c_str(), module->code_size);
 
   OnModuleInstrumented(module);
 
