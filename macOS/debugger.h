@@ -393,6 +393,8 @@ private:
                                 std::list<AddressRange> *executable_ranges,
                                 size_t *code_size);
 
+  void HandleDyld(void *module);
+
   char target_module[PATH_MAX];
   char target_method[PATH_MAX];
 
@@ -423,6 +425,8 @@ private:
   void (*m_dyld_process_info_release)(void *info);
 
   void *m_dyld_debugger_notification;
+
+  void *dyld_address;
 };
 
 

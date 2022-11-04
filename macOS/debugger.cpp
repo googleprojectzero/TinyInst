@@ -1190,16 +1190,7 @@ void Debugger::OnModuleLoaded(void *module, char *module_name) {
   }
 
   if (IsDyld(module)) {
-    m_dyld_debugger_notification = GetSymbolAddress(module, (char*)"__dyld_debugger_notification");
-    AddBreakpoint(m_dyld_debugger_notification, BREAKPOINT_NOTIFICATION);
-
-#ifdef ARM64
-    // For arm we just mov pc, lr on BREAKPOINT_NOTIFICATION
-#else
-    // This save us the recurring TRAP FLAG breakpoint on BREAKPOINT_NOTIFICATION.
-    unsigned char ret = 0xC3;
-    RemoteWrite((void*)((uint64_t)m_dyld_debugger_notification+1), (void*)&ret, 1);
-#endif
+    HandleDyld(module);
   }
 
   if (target_function_defined && !strcasecmp(module_name, target_module)) {
@@ -1212,6 +1203,20 @@ void Debugger::OnModuleLoaded(void *module, char *module_name) {
   }
 }
 
+void Debugger::HandleDyld(void *module) {
+  dyld_address = module;
+
+  m_dyld_debugger_notification = GetSymbolAddress(module, (char*)"__dyld_debugger_notification");
+  AddBreakpoint(m_dyld_debugger_notification, BREAKPOINT_NOTIFICATION);
+
+#ifdef ARM64
+  // For arm we just mov pc, lr on BREAKPOINT_NOTIFICATION
+#else
+  // This save us the recurring TRAP FLAG breakpoint on BREAKPOINT_NOTIFICATION.
+  unsigned char ret = 0xC3;
+  RemoteWrite((void*)((uint64_t)m_dyld_debugger_notification+1), (void*)&ret, 1);
+#endif
+}
 
 void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_t machHeaders[]) {
   uint64_t *image_info_array = new uint64_t[infoCount];
@@ -1224,9 +1229,18 @@ void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_
     }
   } else {
     dyld_all_image_infos all_image_infos = mach_target->GetAllImageInfos();
+
+    // on macOS, it's possible for dyld to be loaded in two places
+    // best effort to detect this here
+    if(all_image_infos.dyldImageLoadAddress != dyld_address) {
+      HandleDyld((void *)all_image_infos.dyldImageLoadAddress);
+    }
+
     dyld_image_info *all_image_info_array = new dyld_image_info[all_image_infos.infoArrayCount];
     size_t all_image_info_array_size = sizeof(dyld_image_info) * all_image_infos.infoArrayCount;
-    RemoteRead((void*)all_image_infos.infoArray, (void*)all_image_info_array, all_image_info_array_size);
+    if(all_image_info_array_size) {
+      RemoteRead((void*)all_image_infos.infoArray, (void*)all_image_info_array, all_image_info_array_size);
+    }
 
     char path[PATH_MAX];
     for (uint32_t i = 0; i < all_image_infos.infoArrayCount; ++i) {
@@ -1761,6 +1775,8 @@ void Debugger::OnProcessExit() {
     ClearSharedMemory();
   }
 
+  dyld_address = 0;
+
   // collect any zombie processes at this point
   int status;
   while(wait3(&status, WNOHANG, 0) > 0);
@@ -2012,4 +2028,6 @@ void Debugger::Init(int argc, char **argv) {
   target_memory_limit = 0;
   option = GetOption("-mem_limit", argc, argv);
   if (option) target_memory_limit = (uint64_t)strtoul(option, NULL, 0) * 1024 * 1024;
+
+  dyld_address = NULL;
 }
