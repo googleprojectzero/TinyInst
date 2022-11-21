@@ -158,6 +158,10 @@ Called when a module gets instrumented. This happens generally when the process 
 `OnModuleUninstrumented`
 Called when instrumentation data is no longer valid and needs to be cleared. Note that this is not the same as module being unloaded as, by default, instrumentation persists across module unloads / reloads. This callback can be used to clear any instrumentation-related data in the client.
 
+### Hook API
+
+In addition to the general-purpose API documented above, TinyInst also implements a hooking API that is better suited for inspecting and modifying behavior of individual functions. This API is documented on a [separate page](https://github.com/googleprojectzero/TinyInst/blob/master/hook.md).
+
 ## Command Line Options
 
 ### Instrumentation related
