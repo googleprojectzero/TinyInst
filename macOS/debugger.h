@@ -79,6 +79,17 @@ enum DebuggerStatus {
   DEBUGGER_ATTACHED,
 };
 
+enum CallingConvention {
+  CALLCONV_DEFAULT,
+};
+
+enum MemoryProtection {
+  READONLY,
+  READWRITE,
+  READEXECUTE,
+  READWRITEEXECUTE
+};
+
 class SharedMemory {
 public:
   SharedMemory(mach_vm_address_t la,
@@ -170,15 +181,8 @@ public:
   Exception GetLastException() {
     return last_exception;
   }
-
-protected:
-  enum MemoryProtection {
-    READONLY,
-    READWRITE,
-    READEXECUTE,
-    READWRITEEXECUTE
-  };
   
+protected:
   enum TargetEndDetection {
     RETADDR_STACK_OVERWRITE,
     RETADDR_BREAKPOINT
@@ -271,7 +275,10 @@ protected:
   void SaveRegisters(SavedRegisters *registers);
   void RestoreRegisters(SavedRegisters *registers);
 
-  void *GetSymbolAddress(void *base_address, char *symbol_name);
+  void *GetSymbolAddress(void *base_address, const char *symbol_name);
+
+  void GetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv = CALLCONV_DEFAULT);
+  void SetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv = CALLCONV_DEFAULT);
 
 private:
   static std::unordered_map<task_t, Debugger*> task_to_debugger_map;

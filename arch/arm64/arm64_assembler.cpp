@@ -40,6 +40,8 @@ uint32_t MSR_NZCV_X0 = 0xd51b4200;
 // strip pac tag
 uint32_t XPACI_X0 = 0xdac143e0;
 
+uint32_t RETURN = 0xd65f03c0;
+
 void PrintInstruction(uint64_t address, arm64::Instruction &instr) {
   std::cout << "0x" << std::hex << address << ": "
             << " " << std::setw(8) << std::setfill(' ')
@@ -64,12 +66,18 @@ void Arm64Assembler::Crash(ModuleInfo *module) {
   tinyinst_.WriteCode(module, &CRASH, sizeof(CRASH));
 }
 
-void Arm64Assembler::Breakpoint(ModuleInfo *module) {
+size_t Arm64Assembler::Breakpoint(ModuleInfo *module) {
+  size_t ret = tinyinst_.GetCurrentInstrumentedAddress(module);
   tinyinst_.WriteCode(module, &BREAKPOINT, sizeof(BREAKPOINT));
+  return ret;
 }
 
 void Arm64Assembler::Nop(ModuleInfo *module) {
   tinyinst_.WriteCode(module, &NOP, sizeof(NOP));
+}
+
+void Arm64Assembler::Ret(ModuleInfo *module) {
+  tinyinst_.WriteCode(module, &RETURN, sizeof(RETURN));
 }
 
 static bool IsReturnInstruction(arm64::Opcode opcode) {

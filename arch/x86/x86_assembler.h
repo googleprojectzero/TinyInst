@@ -49,7 +49,8 @@ class X86Assembler : public Assembler {
 
   void JmpAddress(ModuleInfo *module, size_t address) override;
   void Nop(ModuleInfo *module) override;
-  void Breakpoint(ModuleInfo *module) override;
+  void Ret(ModuleInfo *module) override;
+  size_t Breakpoint(ModuleInfo *module) override;
   void Crash(ModuleInfo *module) override;
 
   void OffsetStack(ModuleInfo *module, int32_t offset) override;

@@ -24,6 +24,7 @@ limitations under the License.
 #include <list>
 
 #include "tinyinst.h"
+#include "hook.h"
 
 #ifdef ARM64
   #include "arch/arm64/arm64_assembler.h"
@@ -301,6 +302,10 @@ bool TinyInst::HandleBreakpoint(void *address) {
 
   if(unwind_generator->HandleBreakpoint(module, address)) {
     return true;
+  }
+  
+  for(auto iter = hooks.begin(); iter != hooks.end(); iter++) {
+    if((*iter)->HandleBreakpoint(module, address)) return true;
   }
 
   return false;
@@ -808,6 +813,23 @@ void TinyInst::OnReturnAddress(ModuleInfo *module, size_t original_address, size
 
 void TinyInst::OnModuleInstrumented(ModuleInfo* module) {
   unwind_generator->OnModuleInstrumented(module);
+  
+  for (auto iter = hooks.begin(); iter != hooks.end(); iter++) {
+    Hook *hook = *iter;
+    if((hook->GetModuleName() == std::string("*")) || (hook->GetModuleName() == module->module_name)) {
+      size_t address = 0;
+      if(!hook->GetFunctionName().empty()) {
+        address = (size_t)GetSymbolAddress(module->module_header, hook->GetFunctionName().c_str());
+      } else if(hook->GetFunctionOffset()) {
+        address = (size_t)(module->module_header) + hook->GetFunctionOffset();
+      } else {
+        FATAL("Hook specifies neithr function name nor offset");
+      }
+      if(address) {
+        resolved_hooks[address] = hook;
+      }
+    }
+  }
 }
 
 void TinyInst::OnModuleUninstrumented(ModuleInfo* module) {
@@ -1115,7 +1137,38 @@ void TinyInst::OnProcessExit() {
   }
   // clear cross-module links
   ClearCrossModuleLinks();
+  
+  resolved_hooks.clear();
+  for (auto iter = hooks.begin(); iter != hooks.end(); iter++) {
+    (*iter)->OnProcessExit();
+  }
 }
+
+void TinyInst::RegisterHook(Hook *hook) {
+  hooks.push_back(hook);
+}
+
+InstructionResult TinyInst::InstrumentInstruction(ModuleInfo *module,
+                                        Instruction& inst,
+                                        size_t bb_address,
+                                        size_t instruction_address)
+{
+  if(!resolved_hooks.empty()) {
+    auto iter = resolved_hooks.find(instruction_address);
+    if(iter != resolved_hooks.end()) {
+      Hook *hook = iter->second;
+      printf("Hooking function %s in module %s\n",
+             hook->GetFunctionName().c_str(),
+             module->module_name.c_str());
+      hook->SetTinyInst(this);
+      hook->SetAssembler(assembler_);
+      return hook->InstrumentFunction(module, instruction_address);
+    }
+  }
+  
+  return INST_NOTHANDLED;
+}
+
 
 // initializes instrumentation from command line options
 void TinyInst::Init(int argc, char **argv) {

@@ -22,6 +22,9 @@ unsigned char BREAKPOINT[] = {0xCC};
 // nop
 unsigned char NOP[] = {0x90};
 
+// ret
+unsigned char RETURN[] = {0xC3};
+
 // jmp offset
 unsigned char JMP[] = {0xe9, 0x00, 0x00, 0x00, 0x00};
 
@@ -130,12 +133,18 @@ void X86Assembler::Crash(ModuleInfo *module) {
   }
 }
 
-void X86Assembler::Breakpoint(ModuleInfo *module) {
+size_t X86Assembler::Breakpoint(ModuleInfo *module) {
+  size_t ret = tinyinst_.GetCurrentInstrumentedAddress(module);
   tinyinst_.WriteCode(module, &BREAKPOINT, sizeof(BREAKPOINT));
+  return ret;
 }
 
 void X86Assembler::Nop(ModuleInfo *module) {
   tinyinst_.WriteCode(module, &NOP, sizeof(NOP));
+}
+
+void X86Assembler::Ret(ModuleInfo *module) {
+  tinyinst_.WriteCode(module, &RETURN, sizeof(RETURN));
 }
 
 void X86Assembler::JmpAddress(ModuleInfo *module, size_t address) {

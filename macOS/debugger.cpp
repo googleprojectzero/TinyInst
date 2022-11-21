@@ -361,6 +361,7 @@ void Debugger::SetReturnAddress(size_t value) {
   RemoteWrite((void*)GetRegister(RSP), &value, child_ptr_size);
 #endif
 }
+
 size_t Debugger::GetReturnAddress() {
 #ifdef ARM64 
   return GetRegister(LR);
@@ -691,21 +692,36 @@ void Debugger::AddBreakpoint(void *address, int type) {
   breakpoints.push_back(new_breakpoint);
 }
 
+void Debugger::GetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv) {
+  for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < num_arguments; ++arg_index) {
+    arguments[arg_index] = GetRegister(ArgumentToRegister(arg_index));
+  }
+
+  if (num_arguments > MAX_NUM_REG_ARGS) {
+    RemoteRead((void*)((uint64_t)sp + child_ptr_size),
+               arguments + MAX_NUM_REG_ARGS,
+               child_ptr_size * (num_arguments - MAX_NUM_REG_ARGS));
+  }
+}
+
+void Debugger::SetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv) {
+  for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < num_arguments; ++arg_index) {
+    SetRegister(ArgumentToRegister(arg_index), arguments[arg_index]);
+  }
+
+  if (num_arguments > MAX_NUM_REG_ARGS) {
+    RemoteWrite((void*)((uint64_t)sp + child_ptr_size),
+                arguments + MAX_NUM_REG_ARGS,
+                child_ptr_size * (num_arguments - MAX_NUM_REG_ARGS));
+  }
+}
 
 void Debugger::HandleTargetReachedInternal() {
   saved_sp = (void*)GetRegister(ARCH_SP);
   saved_return_address = (void*)GetReturnAddress();
 
   if (loop_mode) {
-    for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < target_num_args; ++arg_index) {
-      saved_args[arg_index] = (void*)GetRegister(ArgumentToRegister(arg_index));
-    }
-
-    if (target_num_args > MAX_NUM_REG_ARGS) {
-      RemoteRead((void*)((uint64_t)saved_sp + child_ptr_size),
-                 saved_args + MAX_NUM_REG_ARGS,
-                 child_ptr_size * (target_num_args - MAX_NUM_REG_ARGS));
-    }
+    GetFunctionArguments((uint64_t *)saved_args, target_num_args, (uint64_t)saved_sp, CALLCONV_DEFAULT);
   }
 
   if (!target_reached) {
@@ -737,15 +753,7 @@ void Debugger::HandleTargetEnded() {
       AddBreakpoint((void*)GetTranslatedAddress((size_t)saved_return_address), BREAKPOINT_TARGET_END);
     }
 
-    for (int arg_index = 0; arg_index < MAX_NUM_REG_ARGS && arg_index < target_num_args; ++arg_index) {
-      SetRegister(ArgumentToRegister(arg_index), (size_t)saved_args[arg_index]);
-    }
-
-    if (target_num_args > MAX_NUM_REG_ARGS) {
-      RemoteWrite((void*)((uint64_t)saved_sp + child_ptr_size),
-                  saved_args + MAX_NUM_REG_ARGS,
-                  child_ptr_size * (target_num_args - MAX_NUM_REG_ARGS));
-    }
+    SetFunctionArguments((uint64_t *)saved_args, target_num_args, (uint64_t)saved_sp, CALLCONV_DEFAULT);
   } else {
     SetRegister(ARCH_PC, (size_t)saved_return_address);
     AddBreakpoint((void*)GetTranslatedAddress((size_t)target_address), BREAKPOINT_TARGET);
@@ -1095,7 +1103,7 @@ bool Debugger::IsDyld(void *base_address) {
 }
 
 
-void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
+void *Debugger::GetSymbolAddress(void *base_address, const char *symbol_name) {
   mach_header_64 mach_header;
   GetMachHeader(base_address, &mach_header);
   bool in_shared_cache = (mach_header.filetype == MH_DYLIB)
@@ -1149,6 +1157,7 @@ void *Debugger::GetSymbolAddress(void *base_address, char *symbol_name) {
         curr_sym_name = (char*)curr_sym_name_string.c_str();
       }
 
+      // printf("%s\n", curr_sym_name);
       if (!strcmp(curr_sym_name, symbol_name)) {
         symbol_address = (void*)((uint64_t)base_address - text_cmd->vmaddr + curr_symbol.n_value);
         break;

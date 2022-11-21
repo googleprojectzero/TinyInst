@@ -34,6 +34,8 @@ limitations under the License.
 #include "instruction.h"
 #include "unwind.h"
 
+class Hook;
+
 #if defined(_WIN64)
 
 #include "Windows/winunwind.h"
@@ -144,10 +146,7 @@ protected:
   virtual InstructionResult InstrumentInstruction(ModuleInfo *module,
                                                   Instruction& inst,
                                                   size_t bb_address,
-                                                  size_t instruction_address)
-  {
-    return INST_NOTHANDLED;
-  }
+                                                  size_t instruction_address);
 
   virtual void OnModuleInstrumented(ModuleInfo* module);
   virtual void OnModuleUninstrumented(ModuleInfo* module);
@@ -157,6 +156,8 @@ protected:
 
   UnwindGenerator* unwind_generator;
   virtual void OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address);
+  
+  void RegisterHook(Hook *hook);
 
 private:
   bool HandleBreakpoint(void *address);
@@ -247,11 +248,15 @@ private:
 
   PatchModuleEntriesValue patch_module_entries;
 
+  std::list<Hook *> hooks;
+  std::unordered_map<uint64_t, Hook *> resolved_hooks;
+  
   friend class Asssembler;
   friend class X86Assembler;
   friend class Arm64Assembler;
   friend class ModuleInfo;
   friend class UnwindGenerator;
+  friend class Hook;
 #if defined(_WIN64)
   friend class WinUnwindGenerator;
 #elif __APPLE__

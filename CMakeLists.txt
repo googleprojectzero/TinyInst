@@ -61,6 +61,8 @@ set (cross_platform_files
      litecov.h
      litecov.cpp
      unwind.h
+     hook.cpp
+     hook.h
 )
 
 if (WIN32)
@@ -132,6 +134,16 @@ else()
     )
   endif()
 endif()
+
+project("sslhook")
+
+add_executable(sslhook
+  sslhook-main.cpp
+  sslhook.h
+  sslhook.cpp
+)
+
+target_link_libraries(sslhook tinyinst)
 
 project("litecov")
 
