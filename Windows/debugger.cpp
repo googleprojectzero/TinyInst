@@ -1177,7 +1177,7 @@ void Debugger::HandleTargetReachedInternal() {
 
   SIZE_T numrw = 0;
 
-  CONTEXT lcContext;
+  
   lcContext.ContextFlags = CONTEXT_ALL;
   HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
   GetThreadContext(thread_handle, &lcContext);
@@ -1217,7 +1217,7 @@ void Debugger::HandleTargetReachedInternal() {
 void Debugger::HandleTargetEnded() {
   // printf("in OnTargetMethodEnded\n");
 
-  CONTEXT lcContext;
+ 
   lcContext.ContextFlags = CONTEXT_ALL;
   HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
   GetThreadContext(thread_handle, &lcContext);
