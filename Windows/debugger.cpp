@@ -1051,6 +1051,8 @@ size_t Debugger::GetReturnAddress() {
 }
 
 void Debugger::GetFunctionArguments(uint64_t* arguments, size_t num_args, uint64_t sp, CallingConvention callconv) {
+  RetrieveThreadContext();
+
   switch (callconv) {
 #ifdef _WIN64
   case CALLCONV_DEFAULT:
@@ -1111,6 +1113,8 @@ void Debugger::GetFunctionArguments(uint64_t* arguments, size_t num_args, uint64
 }
 
 void Debugger::SetFunctionArguments(uint64_t* arguments, size_t num_args, uint64_t sp, CallingConvention callconv) {
+  RetrieveThreadContext();
+
   switch (callconv) {
 #ifdef _WIN64
   case CALLCONV_DEFAULT:
@@ -1168,8 +1172,11 @@ void Debugger::SetFunctionArguments(uint64_t* arguments, size_t num_args, uint64
   default:
     FATAL("Unknown calling convention");
   }
-}
 
+  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
+  SetThreadContext(thread_handle, &lcContext);
+  CloseHandle(thread_handle);
+}
 
 // called when the target method is reached
 void Debugger::HandleTargetReachedInternal() {
@@ -1177,17 +1184,7 @@ void Debugger::HandleTargetReachedInternal() {
 
   SIZE_T numrw = 0;
 
-  
-  lcContext.ContextFlags = CONTEXT_ALL;
-  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
-  GetThreadContext(thread_handle, &lcContext);
-
-  // read out and save the params
-#ifdef _WIN64
-  saved_sp = (void *)lcContext.Rsp;
-#else
-  saved_sp = (void *)lcContext.Esp;
-#endif
+  saved_sp = (void *)GetRegister(RSP);
 
   saved_return_address = 0;
   ReadProcessMemory(child_handle, saved_sp, &saved_return_address, child_ptr_size, &numrw);
@@ -1205,8 +1202,6 @@ void Debugger::HandleTargetReachedInternal() {
   size_t return_address = PERSIST_END_EXCEPTION;
   WriteProcessMemory(child_handle, saved_sp, &return_address, child_ptr_size, &numrw);
 
-  CloseHandle(thread_handle);
-
   if (!target_reached) {
     target_reached = true;
     OnTargetMethodReached();
@@ -1217,19 +1212,16 @@ void Debugger::HandleTargetReachedInternal() {
 void Debugger::HandleTargetEnded() {
   // printf("in OnTargetMethodEnded\n");
 
- 
-  lcContext.ContextFlags = CONTEXT_ALL;
-  HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
-  GetThreadContext(thread_handle, &lcContext);
-
-#ifdef _WIN64
-  target_return_value = (uint64_t)lcContext.Rax;
-#else
-  target_return_value = (uint64_t)lcContext.Eax;
-#endif
+  target_return_value = GetRegister(RAX);
 
   if (loop_mode) {
     // restore params
+
+    // Writing to lcContext directly to avoid calling 
+    // SetThreadContext multiple times.
+    // We don't need to RetrieveThreadContext() as it was done in 
+    // GetRegister() above and we don't need to SetThreadContext
+    // as it will be called by SetFunctionArguments below
 #ifdef _WIN64
     lcContext.Rip = (size_t)target_address;
     lcContext.Rsp = (size_t)saved_sp;
@@ -1249,11 +1241,7 @@ void Debugger::HandleTargetEnded() {
 
   } else { /*  loop_mode == false */
 
-#ifdef _WIN64
-    lcContext.Rip = (size_t)saved_return_address;
-#else
-    lcContext.Eip = (size_t)saved_return_address;
-#endif
+    SetRegister(RIP, (size_t)saved_return_address);
 
     // restore target entry breakpoint
     // note that this time, the breakpoint address might be
@@ -1262,9 +1250,6 @@ void Debugger::HandleTargetEnded() {
     AddBreakpoint((void *)GetTranslatedAddress((size_t)target_address),
                   BREAKPOINT_TARGET);
   }
-
-  SetThreadContext(thread_handle, &lcContext);
-  CloseHandle(thread_handle);
 }
 
 // called when process entrypoint gets reached
