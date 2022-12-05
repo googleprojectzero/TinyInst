@@ -22,6 +22,7 @@ limitations under the License.
 #include <tinyinst.h>
 #include <list>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "tinyinst.h"
 
@@ -126,13 +127,9 @@ protected:
 
 class HookReplace : public Hook {
 public:
-  HookReplace(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) {
-    breakpoint_address = 0;
-  }
+  HookReplace(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) { }
   
-  HookReplace(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) {
-    breakpoint_address = 0;
-  }
+  HookReplace(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) { }
 
 protected:
   virtual InstructionResult InstrumentFunction(ModuleInfo* module, size_t function_address);
@@ -146,18 +143,14 @@ protected:
   virtual void OnProcessExit();
   
 private:
-  uint64_t breakpoint_address;
+  std::unordered_set<uint64_t> entry_breakpoints;
 };
 
 class HookBegin : public Hook {
 public:
-  HookBegin(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) {
-    breakpoint_address = 0;
-  }
+  HookBegin(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) { }
 
-  HookBegin(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) {
-    breakpoint_address = 0;
-  }
+  HookBegin(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) { }
 
 protected:
   virtual InstructionResult InstrumentFunction(ModuleInfo* module, size_t function_address);
@@ -171,18 +164,14 @@ protected:
   virtual void OnProcessExit();
 
 private:
-  uint64_t breakpoint_address;
+  std::unordered_set<uint64_t> entry_breakpoints;
 };
 
 class HookBeginEnd : public Hook {
 public:
-  HookBeginEnd(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) {
-    breakpoint_before = 0;
-  }
+  HookBeginEnd(const char *module_name, const char *function_name, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, function_name, num_args, call_convention) { }
   
-  HookBeginEnd(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) {
-    breakpoint_before = 0;
-  }
+  HookBeginEnd(const char *module_name, size_t offset, size_t num_args, CallingConvention call_convention = CALLCONV_DEFAULT) : Hook(module_name, offset, num_args, call_convention) { }
 
 protected:
   virtual InstructionResult InstrumentFunction(ModuleInfo* module, size_t function_address);
@@ -201,7 +190,7 @@ protected:
 private:
   HookTrailer *CreateTrailer(ModuleInfo *module);
   
-  uint64_t breakpoint_before;
+  std::unordered_set<uint64_t> entry_breakpoints;
   std::unordered_map<uint64_t, HookTrailer *> breakpoints_after;
   std::list<HookTrailer *> unused_trailers;
 };

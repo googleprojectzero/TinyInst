@@ -130,14 +130,14 @@ void Hook::CommitContext() {
 }
 
 InstructionResult HookReplace::InstrumentFunction(ModuleInfo* module, size_t function_address) {
-  breakpoint_address = assembler->Breakpoint(module);
+  entry_breakpoints.insert(assembler->Breakpoint(module));
   WriteCodeBefore(module);
   assembler->Ret(module);
   return INST_STOPBB;
 }
 
 bool HookReplace::HandleBreakpoint(ModuleInfo *module, void *address) {
-  if((size_t)address == breakpoint_address) {
+  if(entry_breakpoints.find((size_t)address) != entry_breakpoints.end()) {
     current_context = CreateContext();
 
     OnFunctionEntered();
@@ -153,18 +153,18 @@ bool HookReplace::HandleBreakpoint(ModuleInfo *module, void *address) {
 }
 
 void HookReplace::OnProcessExit() {
-  breakpoint_address = 0;
+  entry_breakpoints.clear();
   if(current_context) delete current_context;
 }
 
 InstructionResult HookBegin::InstrumentFunction(ModuleInfo* module, size_t function_address) {
-  breakpoint_address = assembler->Breakpoint(module);
+  entry_breakpoints.insert(assembler->Breakpoint(module));
   WriteCodeBefore(module);
   return INST_NOTHANDLED;
 }
 
 bool HookBegin::HandleBreakpoint(ModuleInfo *module, void *address) {
-  if((size_t)address == breakpoint_address) {
+  if(entry_breakpoints.find((size_t)address) != entry_breakpoints.end()) {
     current_context = CreateContext();
 
     OnFunctionEntered();
@@ -180,19 +180,19 @@ bool HookBegin::HandleBreakpoint(ModuleInfo *module, void *address) {
 }
 
 void HookBegin::OnProcessExit() {
-  breakpoint_address = 0;
+  entry_breakpoints.clear();
   if(current_context) delete current_context;
 }
 
 
 InstructionResult HookBeginEnd::InstrumentFunction(ModuleInfo* module, size_t function_address) {
-  breakpoint_before = assembler->Breakpoint(module);
+  entry_breakpoints.insert(assembler->Breakpoint(module));
   WriteCodeBefore(module);
   return INST_NOTHANDLED;
 }
 
 bool HookBeginEnd::HandleBreakpoint(ModuleInfo *module, void *address) {
-  if((size_t)address == breakpoint_before) {
+  if(entry_breakpoints.find((size_t)address) != entry_breakpoints.end()) {
     current_context = CreateContext();
 
     OnFunctionEntered();
@@ -261,7 +261,7 @@ HookTrailer *HookBeginEnd::CreateTrailer(ModuleInfo *module) {
 }
 
 void HookBeginEnd::OnProcessExit() {
-  breakpoint_before = 0;
+  entry_breakpoints.clear();
   for(auto iter = breakpoints_after.begin(); iter != breakpoints_after.end(); iter++) {
     if(iter->second->context) delete iter->second->context;
     delete iter->second;
