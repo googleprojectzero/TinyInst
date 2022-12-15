@@ -17,7 +17,6 @@ limitations under the License.
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "litecov.h"
-
 #include "common.h"
 
 ModuleCovData::ModuleCovData() { ClearInstrumentationData(); }
@@ -70,16 +69,9 @@ void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
   // map as readonly initially
   // this causes an exception the first time coverage is written to the buffer
   // this enables us to quickly determine if we had new coverage or not
-  data->coverage_buffer_remote =
-#ifdef ARM64
-    (unsigned char *)RemoteAllocate(data->coverage_buffer_size, READONLY, true);
-#else
-    (unsigned char *)RemoteAllocateNear(
-      (uint64_t)module->instrumented_code_remote,
-      (uint64_t)module->instrumented_code_remote +
-          module->instrumented_code_size,
-      data->coverage_buffer_size, READONLY, true);
-#endif
+  data->coverage_buffer_remote = (unsigned char *)RemoteAllocateNear((uint64_t)module->instrumented_code_remote, 
+    (uint64_t)module->instrumented_code_remote + module->instrumented_code_size, 
+    data->coverage_buffer_size, READONLY, true);
 
   if (!data->coverage_buffer_remote) {
     FATAL("Could not allocate coverage buffer");

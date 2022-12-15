@@ -23,12 +23,7 @@ limitations under the License.
 #include <unordered_map>
 #include <unordered_set>
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
-  #include "Windows/debugger.h"
-#elif __APPLE__
-  #include "macOS/debugger.h"
-#endif
-
+#include "Windows/debugger.h"
 #include "common.h"
 #include "assembler.h"
 #include "instruction.h"
@@ -36,16 +31,7 @@ limitations under the License.
 
 class Hook;
 
-#if defined(_WIN64)
-
 #include "Windows/winunwind.h"
-
-#elif __APPLE__
-
-#include "macOS/unwindmacos.h"
-class UnwindGeneratorMacOS;
-
-#endif
 
 // must be a power of two
 #define JUMPTABLE_SIZE 0x2000
@@ -54,11 +40,7 @@ class UnwindGeneratorMacOS;
 // original_code_size * CODE_SIZE_MULTIPLIER +
 // JUMPTABLE_SIZE * child_ptr_size
 // for instrumented code
-#ifdef ARM64
-#define CODE_SIZE_MULTIPLIER 8
-#else
 #define CODE_SIZE_MULTIPLIER 4
-#endif
 
 typedef struct xed_decoded_inst_s xed_decoded_inst_t;
 
@@ -257,19 +239,12 @@ private:
   friend class ModuleInfo;
   friend class UnwindGenerator;
   friend class Hook;
-#if defined(_WIN64)
   friend class WinUnwindGenerator;
-#elif __APPLE__
-  friend class UnwindGeneratorMacOS;
-#endif
 };
 
 struct IndirectBreakpoinInfo {
   size_t list_head;
   size_t source_bb;
-#ifdef ARM64
-  uint8_t branch_register;
-#endif
 };
 
 class ModuleInfo {

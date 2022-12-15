@@ -17,14 +17,10 @@ limitations under the License.
 #ifndef INSTRUCTION_H
 #define INSTRUCTION_H
 
-#ifdef ARM64
-#include "third_party/reil/reil/aarch64/decoder.h"
-#else
 extern "C" {
   #include "xed/xed-interface.h"
 }
 typedef struct xed_decoded_inst_s xed_decoded_inst_t;
-#endif
 
 enum InstructionClass {
   INVALID = 0,
@@ -39,23 +35,14 @@ struct Instruction {
   size_t length;
   bool bbend;
   InstructionClass iclass;
-
-#ifdef ARM64
-  reil::aarch64::decoder::Instruction instr;
-#else
   xed_decoded_inst_t xedd;
-#endif
+  
   Instruction()
-      : address(0),
-        length(0),
-        bbend(false),
-        iclass(InstructionClass::INVALID),
-#ifdef ARM64
-        instr({})
-#else
-        xedd({})
-#endif
-  {}
+      : address(0), 
+        length(0), 
+        bbend(false), 
+        iclass(InstructionClass::INVALID), 
+        xedd({}) {}
 };
 
 #endif  // INSTRUCTION_H
