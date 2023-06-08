@@ -1137,6 +1137,8 @@ void Debugger::ExtractCodeRanges(void *module_base,
   if(elf_filename.empty()) FATAL("Error retrieving module path");
   ResolveSymlinks(&elf_filename);
 
+  *code_size = 0;
+
   MapsParser maps_parser;
   std::vector<MapsEntry> map_entries;
   maps_parser.Parse(main_pid, map_entries);
@@ -1794,7 +1796,6 @@ void Debugger::Init(int argc, char **argv) {
   attach_mode = false;
   is_target_alive = false;
 
-  trace_debug_events = true;
   proc_mem_fd = 0;
   main_pid = 0;
   current_pid = 0;
@@ -1843,7 +1844,7 @@ void Debugger::Init(int argc, char **argv) {
   char *option;
   trace_debug_events = GetBinaryOption("-trace_debug_events",
                                        argc, argv,
-                                       trace_debug_events);
+                                       false);
 
   option = GetOption("-target_module", argc, argv);
   if (option) strncpy(target_module, option, PATH_MAX);
