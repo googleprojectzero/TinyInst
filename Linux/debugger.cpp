@@ -1880,14 +1880,3 @@ void Debugger::Init(int argc, char **argv) {
   pthread_t thread_id;
   pthread_create(&thread_id, NULL, debugger_watchdog_thread, this);
 }
-
-/*int main(int argc, char **argv) {
-  Debugger debugger;
-  debugger.Init(argc, argv);
-  DebuggerStatus status = debugger.Run(argc -1, argv + 1, 100000);
-  //DebuggerStatus status = debugger.Attach(atoi(argv[1]), 100000);
-  if(status == DEBUGGER_CRASHED) {
-    printf("Crashed\n");
-    debugger.Kill();
-  }
-}*/
