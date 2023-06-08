@@ -283,6 +283,7 @@ bool TinyInst::HandleBreakpoint(void *address) {
 
       printf("TRACE: Executing basic block, original at %p, instrumented at %p\n",
              (void *)iter->second, (void *)iter->first);
+
       return true;
     } else {
       printf("TRACE: Breakpoint\n");
@@ -855,11 +856,11 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
   // if the module was previously instrumented
   // just reuse the same data
   if (persist_instrumentation_data && module->instrumented) {
-    ProtectCodeRanges(&module->executable_ranges);
-    FixCrossModuleLinks(module);
     printf("Module %s already instrumented, "
            "reusing instrumentation data\n",
            module->module_name.c_str());
+    ProtectCodeRanges(&module->executable_ranges);
+    FixCrossModuleLinks(module);
     return;
   }
 
@@ -1099,6 +1100,7 @@ bool TinyInst::OnException(Exception *exception_record) {
     if (HandleBreakpoint(exception_record->ip)) {
       return true;
     }
+    break;
   case ACCESS_VIOLATION:
     if (exception_record->maybe_execute_violation) {
       // possibly we are trying to executed code in an instrumented module
@@ -1106,6 +1108,7 @@ bool TinyInst::OnException(Exception *exception_record) {
         return true;
       }
     }
+    break;
   default:
     break;
   }

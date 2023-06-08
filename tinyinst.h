@@ -27,6 +27,8 @@ limitations under the License.
   #include "Windows/debugger.h"
 #elif __APPLE__
   #include "macOS/debugger.h"
+#else
+  #include "Linux/debugger.h"
 #endif
 
 #include "common.h"

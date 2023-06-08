@@ -35,7 +35,7 @@ set(XED_INTERFACE_H ${CMAKE_CURRENT_BINARY_DIR}/obj/wkit/include/xed/xed-interfa
 
 if (WIN32) 
   set(XED_LIB ${CMAKE_CURRENT_BINARY_DIR}/obj/wkit/lib/xed.lib)
-elseif (APPLE)
+else ()
   set(XED_LIB ${CMAKE_CURRENT_BINARY_DIR}/obj/wkit/lib/libxed.a)
 endif()
 
@@ -65,7 +65,7 @@ if (WIN32)
     COMMAND ${BUILD_XED_COMMAND}
     COMMENT "Building Xed"
   )
-elseif (APPLE)
+else()
   add_custom_command(
     OUTPUT ${XED_LIB} ${XED_INTERFACE_H}
     COMMAND ${BUILD_XED_COMMAND}

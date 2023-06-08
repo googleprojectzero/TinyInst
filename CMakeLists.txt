@@ -104,6 +104,15 @@ elseif (APPLE)
        macOS/dyld_cache_map_parser.cpp
        macOS/dyld_cache_map_parser.h
   )
+elseif (UNIX)
+  set (platform_specific_files
+       Linux/debugger.h
+       Linux/debugger.cpp
+       Linux/elffile.h
+       Linux/elffile.cpp
+       Linux/procmaps.h
+       Linux/procmaps.cpp
+  )
 endif()
 
 add_library(tinyinst STATIC
@@ -128,7 +137,7 @@ else()
                           ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/xed.lib
                           Dbghelp.lib
     )
-  elseif (APPLE)
+  else ()
     target_link_libraries(tinyinst
                           ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/lib/libxed.a
     )

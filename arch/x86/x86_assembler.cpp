@@ -685,6 +685,16 @@ bool X86Assembler::DecodeInstruction(Instruction &inst,
       break;
   }
 
+  if((iclass == XED_ICLASS_XABORT) || (iclass == XED_ICLASS_XEND)) { inst.bbend = false; }
+  else if(iclass == XED_ICLASS_XBEGIN) {
+    const xed_inst_t *xi = xed_decoded_inst_inst(&inst.xedd);
+    const xed_operand_t *op = xed_inst_operand(xi, 0);
+    xed_operand_enum_t operand_name = xed_operand_name(op);
+    if (operand_name != XED_OPERAND_RELBR) {
+      inst.bbend = false;
+    }
+  }
+
   if (category == XED_CATEGORY_RET && iclass == XED_ICLASS_RET_NEAR) {
     inst.iclass = InstructionClass::RET;
   }
@@ -721,6 +731,7 @@ void X86Assembler::HandleBasicBlockEnd(
     const char *code_ptr,
     size_t offset,
     size_t last_offset) {
+
   xed_error_enum_t xed_error;
   xed_category_enum_t category = xed_decoded_inst_get_category(&inst.xedd);
   if (category == XED_CATEGORY_RET) {
