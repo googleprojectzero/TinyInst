@@ -1422,6 +1422,11 @@ void Debugger::SetThreadOptions(pid_t pid) {
 DebuggerStatus Debugger::Kill() {
   if(main_pid <= 0) return DEBUGGER_PROCESS_EXIT;
 
+  if(is_target_alive) {
+    is_target_alive = false;
+    OnProcessExit();
+  }
+
   killing_target = true;
   ptrace_check(PTRACE_KILL, main_pid, 0, 0);
 
@@ -1579,8 +1584,10 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
       // todo is OnProcessExit() appropriate here.
       // todo move to WIFEXITED block once shared memory support is ready
       if(current_pid == main_pid) {
-        is_target_alive = false;
-        OnProcessExit();
+        if(is_target_alive) {
+          is_target_alive = false;
+          OnProcessExit();
+        }
       }
       // not using ptrace_check as thread could not exist anymore
       ptrace(PTRACE_CONT, current_pid, 0, 0);
@@ -1596,6 +1603,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
       }
     } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
       if(current_pid == main_pid) {
+        if(is_target_alive) FATAL("Failed to catch process exit");
         CleanupTarget();
         if(killed_by_watchdog) return DEBUGGER_HANGED;
         else return DEBUGGER_PROCESS_EXIT;
