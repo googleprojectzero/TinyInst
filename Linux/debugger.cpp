@@ -1871,13 +1871,6 @@ void Debugger::Init(int argc, char **argv) {
     FATAL("Target function needs to be defined to use the loop mode\n");
   }
   
-  // avoid overwriting return address in case we have libgmalloc in env
-  for (auto iter = additional_env.begin(); iter != additional_env.end(); iter++) {
-    if (iter->find("libgmalloc") != std::string::npos) {
-      target_end_detection = RETADDR_BREAKPOINT;
-    }
-  }
-
   if (target_num_args) {
     saved_args = (void **)malloc(target_num_args * sizeof(void *));
   }
