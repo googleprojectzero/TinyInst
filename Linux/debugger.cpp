@@ -17,7 +17,6 @@ limitations under the License.
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/ptrace.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/uio.h>
@@ -187,12 +186,54 @@ void Debugger::RemoteWrite(void *address, const void *buffer, size_t size) {
 
 #ifdef ARM64
 
-  //todo: on Android, PTRACE_GETREGS is unimplemented.
-  //      use GETREGSET
+uint64_t* Debugger::GetRegisterHelper(Register r, arch_reg_struct *regs) {
+  switch (r) {
+    case X0:
+    case X1:
+    case X2:
+    case X3:
+    case X4:
+    case X5:
+    case X6:
+    case X7:
+    case X8:
+    case X9:
+    case X10:
+    case X11:
+    case X12:
+    case X13:
+    case X14:
+    case X15:
+    case X16:
+    case X17:
+    case X18:
+    case X19:
+    case X20:
+    case X21:
+    case X22:
+    case X23:
+    case X24:
+    case X25:
+    case X26:
+    case X27:
+    case X28:
+    case X29:
+    case X30:
+      return (uint64_t *)&(regs->regs[(int)r]);
+    case SP:
+      return (uint64_t *)&(regs->sp);
+    case PC:
+      return (uint64_t *)&(regs->pc);
+    case CPSR:
+      return (uint64_t *)&(regs->pstate);
+    default:
+      FATAL("Unimplemented register");
+  }
+}
 
 #else
 
-uint64_t* Debugger::GetRegisterHelper(Register r, user_regs_struct *regs) {
+uint64_t* Debugger::GetRegisterHelper(Register r, arch_reg_struct *regs) {
   switch (r) {
     case RAX:
       return (uint64_t *)&(regs->rax);
@@ -234,30 +275,52 @@ uint64_t* Debugger::GetRegisterHelper(Register r, user_regs_struct *regs) {
   }
 }
 
+#endif
+
+void Debugger::GetArchRegs(arch_reg_struct *regs) {
+#ifdef ARM64
+  iovec io;
+  io.iov_base = regs;
+  io.iov_len = sizeof(*regs);
+  ptrace_check(PTRACE_GETREGSET, current_pid, (void*)NT_PRSTATUS, &io);
+#else
+  ptrace_check(PTRACE_GETREGS, current_pid, 0, regs);
+#endif
+}
+
+void Debugger::SetArchRegs(arch_reg_struct *regs) {
+#ifdef ARM64
+  iovec io;
+  io.iov_base = regs;
+  io.iov_len = sizeof(*regs);
+  ptrace_check(PTRACE_SETREGSET, current_pid, (void*)NT_PRSTATUS, &io);
+#else
+  ptrace_check(PTRACE_SETREGS, current_pid, 0, regs);
+#endif
+}
+
 size_t Debugger::GetRegister(Register r) {
-  user_regs_struct regs;
-  ptrace_check(PTRACE_GETREGS, current_pid, 0, &regs);
+  arch_reg_struct regs;
+  GetArchRegs(&regs);
   uint64_t *ptr = GetRegisterHelper(r, &regs);
   return *ptr;
 }
 
 void Debugger::SetRegister(Register r, size_t value) {
-  user_regs_struct regs;
-  ptrace_check(PTRACE_GETREGS, current_pid, 0, &regs);
+  arch_reg_struct regs;
+  GetArchRegs(&regs);
   uint64_t *ptr = GetRegisterHelper(r, &regs);
   *ptr = value;
-  ptrace_check(PTRACE_SETREGS, current_pid, 0, &regs);
+  SetArchRegs(&regs);
 }
 
 void Debugger::SaveRegisters(SavedRegisters* registers) {
-  ptrace_check(PTRACE_GETREGS, current_pid, 0, &registers->saved_context);
+  GetArchRegs(&registers->saved_context);
 }
 
 void Debugger::RestoreRegisters(SavedRegisters* registers) {
-  ptrace_check(PTRACE_SETREGS, current_pid, 0, &registers->saved_context);
+  SetArchRegs(&registers->saved_context);
 }
-
-#endif
 
 void Debugger::DeleteBreakpoints() {
   for (auto iter = breakpoints.begin(); iter != breakpoints.end(); iter++) {
@@ -323,7 +386,20 @@ void Debugger::OnModuleUnloaded(void *module) {
 }
 
 #ifdef ARM64
-  // todo
+static unsigned char syscall_buf64[] = {
+    // svc #0
+    0x01,
+    0x00,
+    0x00,
+    0xD4,
+    // brk 0
+    0x00,
+    0x00,
+    0x20,
+    0xD4,
+  };
+  // not supported
+  static unsigned char syscall_buf32[] = { };
 #else
 static unsigned char syscall_buf64[] = {
     // syscall
@@ -347,9 +423,9 @@ static unsigned char syscall_buf32[] = {
 #endif
 
 void Debugger::RemoteSyscall() {
-  SetRegister(RIP, syscall_address);
+  SetRegister(ARCH_PC, syscall_address);
 
-  uint64_t rsp = GetRegister(RSP);
+  uint64_t rsp = GetRegister(ARCH_SP);
 
   ptrace_check(PTRACE_SINGLESTEP, current_pid, nullptr, nullptr);
 
@@ -363,12 +439,19 @@ void Debugger::RemoteSyscall() {
   // uint64_t rip = GetRegister(RIP);
   // printf("rip: %lx, syscall_address: %lx\n", rip, syscall_address);
 
-  if(rsp != GetRegister(RSP)) FATAL("rsp mismatch %lx %lx", rsp, GetRegister(RSP));
+  if(rsp != GetRegister(ARCH_SP)) FATAL("rsp mismatch %lx %lx", rsp, GetRegister(ARCH_SP));
   // printf("Syscall status: %x\n", status);
 }
 
 void Debugger::SetSyscallArgs(uint64_t *args, size_t num_args) {
-  // todo ARM
+#ifdef ARM64
+  if(num_args > 0) SetRegister(X0, args[0]);
+  if(num_args > 1) SetRegister(X1, args[1]);
+  if(num_args > 2) SetRegister(X2, args[2]);
+  if(num_args > 3) SetRegister(X3, args[3]);
+  if(num_args > 4) SetRegister(X4, args[4]);
+  if(num_args > 5) SetRegister(X5, args[5]);
+#else
   if(child_ptr_size == 4) {
     if(num_args > 0) SetRegister(RBX, args[0]);
     if(num_args > 1) SetRegister(RCX, args[1]);
@@ -384,6 +467,7 @@ void Debugger::SetSyscallArgs(uint64_t *args, size_t num_args) {
     if(num_args > 4) SetRegister(R8, args[4]);
     if(num_args > 5) SetRegister(R9, args[5]);
   }
+#endif
 }
 
 
@@ -402,16 +486,23 @@ void* Debugger::RemoteMmap(void *addr, size_t length, int prot, int flags, int f
   args[5] = (uint64_t)offset;
   SetSyscallArgs(args, 6);
 
-  // todo arm
+#ifdef ARM64
+  SetRegister(X8, 0xde);
+#else
   if(child_ptr_size == 4) {
     SetRegister(RAX, 0xC0);
   } else {
     SetRegister(RAX, 9);
   }
+#endif
 
   RemoteSyscall();
 
+#ifdef ARM64
+  uint64_t ret = GetRegister(X0);
+#else
   uint64_t ret = GetRegister(RAX);
+#endif
 
   RestoreRegisters(&saved_regs);
 
@@ -429,16 +520,23 @@ int Debugger::RemoteMunmap(void *addr, size_t len) {
   args[1] = (uint64_t)len;
   SetSyscallArgs(args, 2);
 
-  // todo arm
+#ifdef ARM64
+  SetRegister(X8, 0xd7);
+#else
   if(child_ptr_size == 4) {
     SetRegister(RAX, 0x5b);
   } else {
     SetRegister(RAX, 11);
   }
+#endif
 
   RemoteSyscall();
 
+#ifdef ARM64
+  uint64_t ret = GetRegister(X0);
+#else
   uint64_t ret = GetRegister(RAX);
+#endif
 
   RestoreRegisters(&saved_regs);
 
@@ -458,16 +556,23 @@ int Debugger::RemoteMprotect(void *addr, size_t len, int prot) {
   args[2] = (uint64_t)prot;
   SetSyscallArgs(args, 3);
 
-  // todo arm
+#ifdef ARM64
+  SetRegister(X8, 0xe2);
+#else
   if(child_ptr_size == 4) {
     SetRegister(RAX, 0x7d);
   } else {
     SetRegister(RAX, 10);
   }
+#endif
 
   RemoteSyscall();
 
+#ifdef ARM64
+  uint64_t ret = GetRegister(X0);
+#else
   uint64_t ret = GetRegister(RAX);
+#endif
 
   RestoreRegisters(&saved_regs);
 
@@ -497,7 +602,7 @@ int Debugger::GetProt(MemoryProtection protection) {
   }
 }
 
-void* Debugger::RemoteAllocate(size_t size, MemoryProtection protection) {
+void* Debugger::RemoteAllocate(size_t size, MemoryProtection protection, bool use_shared_memory) {
   void *ret = RemoteMmap(NULL, size, GetProt(protection), MAP_PRIVATE | MAP_ANONYMOUS, 0 ,0);
   if(ret == MAP_FAILED) return NULL;
   return ret;
@@ -833,14 +938,17 @@ void Debugger::OnNotifier() {
 
   //simulate a return
 
-  // todo: arm
 
+#ifdef ARM64 
+  SetRegister(ARCH_PC, GetRegister(LR));
+#else
   uint64_t rsp = GetRegister(RSP);
   uint64_t ret_address = 0;
   RemoteRead((void *)rsp, &ret_address, child_ptr_size);
   rsp = rsp + child_ptr_size;
   SetRegister(RSP, rsp);
   SetRegister(RIP, ret_address);
+#endif
 
   OnLoadedModulesChanged(false);
 }
@@ -1068,13 +1176,15 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   uint16_t e_machine;
   RemoteRead((void *)(exe_address + 0x12), &e_machine, sizeof(e_machine));
 
-  if(e_machine == 3) {
+  if(e_machine == 3) { // x86
     if(linux32_warning) {
       linux32_warning = false;
       WARN("32-bit Linux target detected. -patch_return_addresses flag might be needed.");
     }
     child_ptr_size = 4;
-  } else if(e_machine == 0x3e) {
+  } else if(e_machine == 0x3e) { // x64
+    child_ptr_size = 8;
+  } else if(e_machine == 0xB7) { // ARM64
     child_ptr_size = 8;
   } else {
     FATAL("Unsupported machine type 0x%x", (int)e_machine);
@@ -1471,7 +1581,8 @@ DebuggerStatus Debugger::HandleStopped(int status) {
     } else {
       last_exception.type = BREAKPOINT;
 #ifdef ARM64
-      last_exception.ip = (void *)GetRegister(RIP);
+      last_exception.ip = (void *)GetRegister(PC);
+      SetRegister(PC, GetRegister(PC) + 4);
 #else
       last_exception.ip = (void *)(GetRegister(RIP) - 1);
 #endif
@@ -1491,19 +1602,19 @@ DebuggerStatus Debugger::HandleStopped(int status) {
     ptrace_check(PTRACE_GETSIGINFO, current_pid, 0, &siginfo);
 
     last_exception.type = ACCESS_VIOLATION;
-    last_exception.ip = (void *)GetRegister(RIP);
+    last_exception.ip = (void *)GetRegister(ARCH_PC);
     last_exception.access_address = siginfo.si_addr;
     last_exception.maybe_execute_violation = true;
     last_exception.maybe_write_violation = true;
   } else if(WSTOPSIG(status) == SIGILL) {
 
     last_exception.type = ILLEGAL_INSTRUCTION;
-    last_exception.ip = (void *)GetRegister(RIP);
+    last_exception.ip = (void *)GetRegister(ARCH_PC);
     last_exception.access_address = last_exception.ip;
   } else if((WSTOPSIG(status) == SIGABRT) || (WSTOPSIG(status) == SIGFPE)) {
-    
+
     last_exception.type = OTHER;
-    last_exception.ip = (void *)GetRegister(RIP);
+    last_exception.ip = (void *)GetRegister(ARCH_PC);
     last_exception.access_address = 0;
   } else  {
     WARN("Unhandled signal, status: %x", status);
@@ -1614,7 +1725,6 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   }
 }
 
-// todo timeout
 DebuggerStatus Debugger::Continue(uint32_t timeout) {
   if (loop_mode && (dbg_last_status == DEBUGGER_TARGET_END)) {
     dbg_last_status = DEBUGGER_TARGET_START;
@@ -1838,7 +1948,6 @@ void Debugger::Init(int argc, char **argv) {
   
 #ifdef ARM64
   target_end_detection = RETADDR_BREAKPOINT;
-  private_dlyd_cache = true;
 #else
   target_end_detection = RETADDR_STACK_OVERWRITE;
 #endif

@@ -16,7 +16,12 @@ cmake_minimum_required(VERSION "3.1")
 set (CMAKE_CXX_STANDARD 17)
 
 # Determine whether TinyInst should be build for arm64 or x86
-if(APPLE AND NOT DEFINED ${ARCHITECTURE})
+if (WIN32)
+  # no support for arm64 on Windows
+elseif(${ANDROID_ABI} MATCHES "arm64")
+  set(ARCHITECTURE ${ANDROID_ABI})
+  add_definitions(-DARM64)
+elseif(NOT DEFINED ${ARCHITECTURE})
   EXECUTE_PROCESS(COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE)
   if(${ARCHITECTURE} MATCHES arm64)
     add_definitions(-DARM64)
@@ -127,7 +132,7 @@ target_include_directories(tinyinst PUBLIC
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include
 )
 
-if((${ARCHITECTURE} MATCHES arm64) AND APPLE)
+if(${ARCHITECTURE} MATCHES arm64)
   add_dependencies(tinyinst reil)
   target_link_libraries(tinyinst reil)
 else()

@@ -18,6 +18,7 @@ limitations under the License.
 #define DEBUGGER_H
 
 #include <sys/user.h>
+#include <sys/ptrace.h>
 
 #include <inttypes.h>
 #include <list>
@@ -29,8 +30,6 @@ limitations under the License.
 
 #include "common.h"
 #include "procmaps.h"
-
-struct user_regs_struct;
 
 #ifdef ARM64
 #include "arch/arm64/reg.h"
@@ -68,16 +67,14 @@ struct LoadedModule {
 bool operator< (LoadedModule const& lhs, LoadedModule const& rhs);
 
 #ifdef ARM64
-
-  //todo
-
+typedef user_pt_regs arch_reg_struct;
 #else
+typedef user_regs_struct arch_reg_struct;
+#endif
 
 struct SavedRegisters {
-  user_regs_struct saved_context;
+  arch_reg_struct saved_context;
 };
-
-#endif
 
 class Debugger {
 
@@ -162,7 +159,7 @@ protected:
   void SaveRegisters(SavedRegisters* registers);
   void RestoreRegisters(SavedRegisters* registers);
 
-  void* RemoteAllocate(size_t size, MemoryProtection protection);
+  void* RemoteAllocate(size_t size, MemoryProtection protection, bool use_shared_memory = false);
   void RemoteFree(void *address, size_t size);
   void RemoteProtect(void *address, size_t size, MemoryProtection protection);
 
@@ -215,7 +212,7 @@ private:
   void OnLoadedModulesChanged(bool set_breakpoint);
   void SetThreadOptions(pid_t pid);
 
-  uint64_t* GetRegisterHelper(Register r, user_regs_struct *regs);
+  uint64_t* GetRegisterHelper(Register r, arch_reg_struct *regs);
 
   uint64_t GetSegment(uint64_t header, uint32_t type, uint64_t *segment_size);
   int ReadCString(uint64_t address, char *str, size_t size);
@@ -257,6 +254,9 @@ private:
 
   void ReadStack(void *stack_addr, uint64_t *buffer, size_t numitems);
   void WriteStack(void *stack_addr, uint64_t *buffer, size_t numitems);
+
+  void GetArchRegs(arch_reg_struct *regs);
+  void SetArchRegs(arch_reg_struct *regs);
 
   void GetThreads(int pid);
 
