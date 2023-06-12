@@ -171,17 +171,37 @@ char **Debugger::GetEnvp() {
 }
 
 void Debugger::RemoteRead(void *address, void *buffer, size_t size) {
-    ssize_t ret = pread(proc_mem_fd, buffer, size, (ssize_t)address);
-    if(ret != size) {
-      FATAL("Error reading target memory");
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ++iter) {
+    if(((uint64_t)address >= iter->remote_address) && 
+       ((uint64_t)address + size <= (iter->remote_address + iter->size)))
+    {
+      uint64_t shm_address = iter->local_address + ((uint64_t)address - iter->remote_address);
+      memcpy(buffer, (void *)shm_address, size);
+      return;
     }
+  }
+
+  ssize_t ret = pread(proc_mem_fd, buffer, size, (ssize_t)address);
+  if(ret != size) {
+    FATAL("Error reading target memory");
+  }
 }
 
 void Debugger::RemoteWrite(void *address, const void *buffer, size_t size) {
-    ssize_t ret = pwrite(proc_mem_fd, buffer, size, (ssize_t)address);
-    if(ret != size) {
-      FATAL("Error writing target memory");
+  for (auto iter = shared_memory.begin(); iter != shared_memory.end(); ++iter) {
+    if(((uint64_t)address >= iter->remote_address) && 
+       ((uint64_t)address + size <= (iter->remote_address + iter->size)))
+    {
+      uint64_t shm_address = iter->local_address + ((uint64_t)address - iter->remote_address);
+      memcpy((void *)shm_address, buffer, size);
+      return;
     }
+  }
+
+  ssize_t ret = pwrite(proc_mem_fd, buffer, size, (ssize_t)address);
+  if(ret != size) {
+    FATAL("Error writing target memory");
+  }
 }
 
 #ifdef ARM64
@@ -543,6 +563,48 @@ int Debugger::RemoteMunmap(void *addr, size_t len) {
   return (int)ret;
 }
 
+int Debugger::RemoteOpen(const char *pathname, int flags, mode_t mode) {
+  // we are using openat syscall since it's also supported by ARM64
+
+  SetupSyscalls();
+
+  SavedRegisters saved_regs;
+  SaveRegisters(&saved_regs);
+
+  size_t path_len = strlen(pathname);
+  uint64_t pathname_addr = syscall_address + getpagesize() / 2;
+  RemoteWrite((void *)pathname_addr, pathname, path_len);
+
+  uint64_t args[4];
+  args[0] = AT_FDCWD;
+  args[1] = pathname_addr;
+  args[2] = (uint64_t)flags;
+  args[3] = (uint64_t)mode;
+  SetSyscallArgs(args, 4);
+
+#ifdef ARM64
+  SetRegister(X8, 0x38);
+#else
+  if(child_ptr_size == 4) {
+    SetRegister(RAX, 0x127);
+  } else {
+    SetRegister(RAX, 0x101);
+  }
+#endif
+
+  RemoteSyscall();
+
+#ifdef ARM64
+  uint64_t ret = GetRegister(X0);
+#else
+  uint64_t ret = GetRegister(RAX);
+#endif
+
+  RestoreRegisters(&saved_regs);
+
+  return (int)ret;
+}
+
 
 int Debugger::RemoteMprotect(void *addr, size_t len, int prot) {
   SetupSyscalls();
@@ -602,9 +664,89 @@ int Debugger::GetProt(MemoryProtection protection) {
   }
 }
 
+Debugger::SharedMemory *Debugger::CreateSharedMemory(size_t size) {
+  SharedMemory shm;
+  char name[50];
+  int fd;
+
+  for(int i=0; i<100; i++) {
+    curr_shm_index++;
+    sprintf(name, "tinyinstshm_%d_%u", gettid(), curr_shm_index);
+
+    fd = shm_open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (fd == -1) {
+      WARN("Could not create shared memory, retrying with a new name");
+      continue;
+    }
+    break;
+  }
+  if (fd == -1) {
+    FATAL("Error creating shared memory");
+  }
+
+  shm.name = name;
+
+  char procfile[30];
+  char shm_path[PATH_MAX + 1];
+  sprintf(procfile, "/proc/%d/fd/%d", getpid(), fd);
+  auto shm_path_size = readlink(procfile, shm_path, PATH_MAX);
+  if(shm_path_size <= 0) {
+    FATAL("Error reading exe path");
+  }
+  shm_path[shm_path_size] = 0;
+  // printf("shared memory at %s\n", shm_path);
+
+  // extend shared memory object as by default it's initialized with size 0
+  if(ftruncate(fd, size) == -1) {
+    FATAL("Error creating shared memory, ftruncate");
+  }
+
+  // map shared memory to process address space
+  shm.local_address = (uint64_t)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (shm.local_address == (uint64_t)MAP_FAILED)
+  {
+    FATAL("Error creating shared memory, mmap");
+  }
+
+  int remote_fd = RemoteOpen(shm_path, O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR);
+  if(remote_fd <= 0) FATAL("RemoteOpen error");
+
+  shm.remote_address = 0;
+  shm.size = size;
+  shm.local_fd = fd;
+  shm.remote_fd = remote_fd;
+
+  shared_memory.push_front(shm);
+  return &(*shared_memory.begin());
+}
+
+void Debugger::ClearSharedMemory() {
+  for(auto iter = shared_memory.begin(); iter != shared_memory.end(); iter++) {
+    munmap((void *)iter->local_address, iter->size);
+    close(iter->local_fd);
+    shm_unlink(iter->name.c_str());
+  }
+  shared_memory.clear();
+}
+
 void* Debugger::RemoteAllocate(size_t size, MemoryProtection protection, bool use_shared_memory) {
-  void *ret = RemoteMmap(NULL, size, GetProt(protection), MAP_PRIVATE | MAP_ANONYMOUS, 0 ,0);
+  SharedMemory *shm = NULL;
+  if(use_shared_memory) shm = CreateSharedMemory(size);
+
+  int fd = 0;
+  int flags = 0;
+  if(shm) {
+    fd = shm->remote_fd;
+    flags |= MAP_SHARED;
+    shm->remote_address = 0;
+  } else {
+    flags |= MAP_PRIVATE | MAP_ANONYMOUS;
+  }
+
+  void *ret = RemoteMmap(NULL, size, GetProt(protection), flags, fd ,0);
   if(ret == MAP_FAILED) return NULL;
+
+  if(shm) shm->remote_address = (uint64_t)ret;
   return ret;
 }
 
@@ -620,6 +762,9 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
 				        MemoryProtection protection,
 				        bool use_shared_memory)
 {
+  SharedMemory *shm = NULL;
+  if(use_shared_memory) shm = CreateSharedMemory(size);
+
   uint64_t min_address, max_address;
 
   MapsParser maps_parser;
@@ -632,7 +777,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   //try before
   min_address = (region_max < 0x80000000) ? 0 : region_max - 0x80000000;
   max_address = (region_min < size) ? 0 : region_min - size;
-  ret_address = RemoteAllocateBefore(min_address, max_address, size, protection, map_entries);
+  ret_address = RemoteAllocateBefore(min_address, max_address, size, protection, map_entries,shm);
   if (ret_address != NULL) {
     return ret_address;
   }
@@ -641,7 +786,7 @@ void *Debugger::RemoteAllocateNear(uint64_t region_min,
   min_address = region_max;
   max_address = (UINT64_MAX - region_min < 0x80000000) ? UINT64_MAX : region_min + 0x80000000;
   if((child_ptr_size == 4) && (max_address > UINT32_MAX)) max_address = UINT32_MAX;
-  ret_address = RemoteAllocateAfter(min_address, max_address, size, protection, map_entries);
+  ret_address = RemoteAllocateAfter(min_address, max_address, size, protection, map_entries, shm);
   if (ret_address != NULL) {
     return ret_address;
   }
@@ -653,7 +798,8 @@ void *Debugger::RemoteAllocateAfter(uint64_t min_address,
                                     uint64_t max_address,
                                     size_t size,
                                     MemoryProtection protection,
-                                    std::vector<MapsEntry> &map_entries)
+                                    std::vector<MapsEntry> &map_entries,
+                                    Debugger::SharedMemory *shm)
 {
   uint64_t cur_address = min_address;
   uint64_t cur_entry_index = 0;
@@ -690,7 +836,7 @@ void *Debugger::RemoteAllocateAfter(uint64_t min_address,
       cur_entry_index++;
       continue;
     }
-    void *ret = RemoteAllocateAt(cur_address, size, protection);
+    void *ret = RemoteAllocateAt(cur_address, size, protection, shm);
     if(ret) {
       return ret;
     }
@@ -704,7 +850,8 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
                                      uint64_t max_address,
                                      size_t size,
                                      MemoryProtection protection,
-                                     std::vector<MapsEntry> &map_entries)
+                                     std::vector<MapsEntry> &map_entries,
+                                     Debugger::SharedMemory *shm)
 {
   uint64_t cur_address = max_address;
   int64_t cur_entry_index = map_entries.size() - 1;
@@ -742,7 +889,7 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
       continue;
     }
     // printf("Attempting to allocate at %lx\n", cur_address);
-    void *ret = RemoteAllocateAt(cur_address, size, protection);
+    void *ret = RemoteAllocateAt(cur_address, size, protection, shm);
     if(ret) {
       // printf("Allocated at %p\n", ret);
       return ret;
@@ -755,12 +902,23 @@ void *Debugger::RemoteAllocateBefore(uint64_t min_address,
 }
 
 
-void *Debugger::RemoteAllocateAt(uint64_t address, uint64_t size, MemoryProtection protection) {
-  void *ret = RemoteMmap((void *)address, size, GetProt(protection), MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, 0 ,0);
+void *Debugger::RemoteAllocateAt(uint64_t address, uint64_t size, MemoryProtection protection, Debugger::SharedMemory *shm) {
+  int fd = 0;
+  int flags = MAP_FIXED_NOREPLACE;
+  if(shm) {
+    fd = shm->remote_fd;
+    flags |= MAP_SHARED;
+    shm->remote_address = 0;
+  } else {
+    flags |= MAP_PRIVATE | MAP_ANONYMOUS;
+  }
+
+  void *ret = RemoteMmap((void *)address, size, GetProt(protection), flags, fd, 0);
   if(ret != (void *)address) return NULL;
+
+  if(shm) shm->remote_address = (uint64_t)ret;
   return ret;
 }
-
 
 void Debugger::OnEntrypoint() {
   if (trace_debug_events) {
@@ -868,7 +1026,7 @@ void Debugger::SetupSyscalls() {
   
   syscall_address = entrypoint_address;
 
-  debugger_allocated_memory = (uint64_t)RemoteAllocate(0x1000, READWRITEEXECUTE);
+  debugger_allocated_memory = (uint64_t)RemoteAllocate(getpagesize(), READWRITEEXECUTE);
   if(!debugger_allocated_memory) {
     FATAL("Error allocating memory in target");
   }
@@ -1532,11 +1690,6 @@ void Debugger::SetThreadOptions(pid_t pid) {
 DebuggerStatus Debugger::Kill() {
   if(main_pid <= 0) return DEBUGGER_PROCESS_EXIT;
 
-  if(is_target_alive) {
-    is_target_alive = false;
-    OnProcessExit();
-  }
-
   killing_target = true;
   ptrace_check(PTRACE_KILL, main_pid, 0, 0);
 
@@ -1692,14 +1845,6 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
     if(WIFSTOPPED(status) && ((status >> 8) == (SIGTRAP | (PTRACE_EVENT_EXIT << 8)))) {
       if (trace_debug_events) printf("Debugger: Thread %d exit\n", current_pid);
       threads.erase(current_pid);
-      // todo is OnProcessExit() appropriate here.
-      // todo move to WIFEXITED block once shared memory support is ready
-      if(current_pid == main_pid) {
-        if(is_target_alive) {
-          is_target_alive = false;
-          OnProcessExit();
-        }
-      }
       // not using ptrace_check as thread could not exist anymore
       ptrace(PTRACE_CONT, current_pid, 0, 0);
     } else if (WIFSTOPPED(status)) {
@@ -1714,7 +1859,8 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
       }
     } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
       if(current_pid == main_pid) {
-        if(is_target_alive) FATAL("Failed to catch process exit");
+        is_target_alive = false;
+        OnProcessExit();
         CleanupTarget();
         if(killed_by_watchdog) return DEBUGGER_HANGED;
         else return DEBUGGER_PROCESS_EXIT;
@@ -1889,6 +2035,8 @@ void Debugger::CleanupTarget() {
   threads.clear();
   loaded_modules.clear();
 
+  ClearSharedMemory();
+
   if(proc_mem_fd) close(proc_mem_fd);
 
   main_pid = 0;
@@ -1997,4 +2145,6 @@ void Debugger::Init(int argc, char **argv) {
 
   pthread_t thread_id;
   pthread_create(&thread_id, NULL, debugger_watchdog_thread, this);
+
+  curr_shm_index = 0;
 }

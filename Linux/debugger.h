@@ -113,6 +113,16 @@ public:
   }
 
 protected:
+  class SharedMemory {
+  public:
+    std::string name;
+    uint64_t local_address;
+    uint64_t remote_address;
+    int local_fd;
+    int remote_fd;
+    uint64_t size;
+  };
+
   enum TargetEndDetection {
     RETADDR_STACK_OVERWRITE,
     RETADDR_BREAKPOINT
@@ -225,6 +235,7 @@ private:
 
   void *RemoteMmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
   int RemoteMunmap(void *addr, size_t len);
+  int RemoteOpen(const char *pathname, int flags, mode_t mode);
   int RemoteMprotect(void *addr, size_t len, int prot);
   void RemoteSyscall();
 
@@ -242,15 +253,17 @@ private:
                              uint64_t max_address,
                              size_t size,
                              MemoryProtection protection,
-                             std::vector<MapsEntry> &map_entries);
+                             std::vector<MapsEntry> &map_entries,
+                             SharedMemory *shm);
 
   void *RemoteAllocateAfter(uint64_t min_address,
                             uint64_t max_address,
                             size_t size,
                             MemoryProtection protection,
-                            std::vector<MapsEntry> &map_entries);
+                            std::vector<MapsEntry> &map_entries,
+                            SharedMemory *shm);
 
-  void *RemoteAllocateAt(uint64_t address, uint64_t size, MemoryProtection protection);
+  void *RemoteAllocateAt(uint64_t address, uint64_t size, MemoryProtection protection, SharedMemory *shm);
 
   void ReadStack(void *stack_addr, uint64_t *buffer, size_t numitems);
   void WriteStack(void *stack_addr, uint64_t *buffer, size_t numitems);
@@ -268,6 +281,11 @@ private:
 
   void Watchdog();
   friend void *debugger_watchdog_thread(void *arg);
+
+  SharedMemory *CreateSharedMemory(size_t size);
+  void ClearSharedMemory();
+  std::list<SharedMemory> shared_memory;
+  unsigned int curr_shm_index;
 
   volatile bool watchdog_enabled;
   volatile uint64_t watchdog_timeout_time;
