@@ -1705,7 +1705,8 @@ DebuggerStatus Debugger::Kill() {
   if(main_pid <= 0) return DEBUGGER_PROCESS_EXIT;
 
   killing_target = true;
-  ptrace_check(PTRACE_KILL, main_pid, 0, 0);
+  // ptrace_check(PTRACE_KILL, main_pid, 0, 0);
+  kill(main_pid, SIGKILL);
 
   //SIGKILL is not handled, so DebugLoop must return DEBUGGER_PROCESS_EXIT
   dbg_last_status = DebugLoop(0xffffffff);
