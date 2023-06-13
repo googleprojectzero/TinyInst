@@ -666,14 +666,19 @@ int Debugger::GetProt(MemoryProtection protection) {
 
 Debugger::SharedMemory *Debugger::CreateSharedMemory(size_t size) {
   SharedMemory shm;
-  char name[50];
+  char name[56];
   int fd;
 
   for(int i=0; i<100; i++) {
     curr_shm_index++;
-    sprintf(name, "tinyinstshm_%d_%u", gettid(), curr_shm_index);
 
+#ifdef __ANDROID__
+    sprintf(name, "/data/local/tmp/tinyinstshm_%d_%u", gettid(), curr_shm_index);
+    fd = open(name, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC , S_IRUSR | S_IWUSR);
+#else
+    sprintf(name, "tinyinstshm_%d_%u", gettid(), curr_shm_index);
     fd = shm_open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+#endif
     if (fd == -1) {
       WARN("Could not create shared memory, retrying with a new name");
       continue;
@@ -686,7 +691,7 @@ Debugger::SharedMemory *Debugger::CreateSharedMemory(size_t size) {
 
   shm.name = name;
 
-  char procfile[30];
+  char procfile[32];
   char shm_path[PATH_MAX + 1];
   sprintf(procfile, "/proc/%d/fd/%d", getpid(), fd);
   auto shm_path_size = readlink(procfile, shm_path, PATH_MAX);
@@ -724,7 +729,11 @@ void Debugger::ClearSharedMemory() {
   for(auto iter = shared_memory.begin(); iter != shared_memory.end(); iter++) {
     munmap((void *)iter->local_address, iter->size);
     close(iter->local_fd);
+#ifdef __ANDROID__
+    unlink(iter->name.c_str());
+#else
     shm_unlink(iter->name.c_str());
+#endif
   }
   shared_memory.clear();
 }
