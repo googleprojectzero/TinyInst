@@ -1275,8 +1275,13 @@ int Debugger::HandleDebuggerBreakpoint() {
     if (tmp_breakpoint->address == (void*)(last_exception.ip)) {
       breakpoint = tmp_breakpoint;
       if (breakpoint->type & BREAKPOINT_NOTIFICATION) {
-        if(breakpoint->original_opcode != 0xc3) {
-          FATAL("Unexpected notifier function");
+#ifdef ARM64
+        uint32_t expected_opcode = 0xd65f03c0;
+#else
+        unsigned char expected_opcode = 0xc3;
+#endif
+        if(breakpoint->original_opcode != expected_opcode) {
+          FATAL("Unexpected notifier function %x", (uint32_t)breakpoint->original_opcode);
         }
         OnNotifier();
         return BREAKPOINT_NOTIFICATION;
