@@ -674,10 +674,12 @@ Debugger::SharedMemory *Debugger::CreateSharedMemory(size_t size) {
 
 #ifdef __ANDROID__
     sprintf(name, "/data/local/tmp/tinyinstshm_%d_%u", gettid(), curr_shm_index);
-    fd = open(name, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC , S_IRUSR | S_IWUSR);
+    fd = open(name, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC , 
+                    S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 #else
     sprintf(name, "tinyinstshm_%d_%u", gettid(), curr_shm_index);
-    fd = shm_open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    fd = shm_open(name, O_RDWR | O_CREAT,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 #endif
     if (fd == -1) {
       WARN("Could not create shared memory, retrying with a new name");
