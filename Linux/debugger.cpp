@@ -139,8 +139,12 @@ bool operator< (LoadedModule const& lhs, LoadedModule const& rhs) {
 
 #define ptrace_check(request, pid, addr, data) ({  \
     long ret = ptrace(request, pid, addr, data); \
-    if(ret == -1) { FATAL("ptrace error %d", errno); \
-  } ret; })
+    if(ret == -1) { \
+      WARN("ptrace error %d", errno); \
+      if(errno == ESRCH) SAY("thread doesn't exist anymore?\n"); \
+      SAY(" Location : %s(), %s:%u\n\n", \
+      __FUNCTION__, __FILE__, __LINE__); \
+    } ret; })
 
 
 char **Debugger::GetEnvp() {
@@ -1948,7 +1952,7 @@ void Debugger::GetThreads(int pid) {
   sprintf(proctask, "/proc/%d/task", pid);
   DIR *proc_dir = opendir(proctask);
   if(!proc_dir) {
-    FATAL("Error opening %s", proctask);
+    FATAL("Error opening %s, process doesn't exist?", proctask);
   }
 
   struct dirent *entry;
