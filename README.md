@@ -30,7 +30,7 @@ TinyInst is a full binary rewriting solution, so arbitrary behavior can be chang
 
 ### Which operating system does TinyInst support?
 
-TinyInst is available on Windows (32- and 64-bit) and macOS (64-bit) with some [limitations](https://github.com/googleprojectzero/TinyInst/tree/master/macOS).
+TinyInst is working on Windows (x86 and x64), macOS (x64 and ARM64), Linux (x64 and ARM64) and Android (ARM64). Please see README in the corresponding directory for each operating system for additional notes and limitations.
 
 ### Which targets are compatible with TinyInst?
 
@@ -71,9 +71,25 @@ cmake -G Xcode ..
 cmake --build . --config Release
 ```
 
-Note #1: 64-bit build will also run against 32-bit targets
+#### Linux
+```
+mkdir build
+cd build
+cmake ..
+cmake --build . --config Release
+```
 
-Note #2: Encountering problems creating a 32-bit build on 64-bit windows due to the environment not being properly set up and libraries missing? Open the generated .sln file in Visual Studio and build from there instead of running cmake --build. Also note that 64-bit build is going to work on 32-bit targets, so creating a 32-bit build might not be necessary.
+#### Cross-compiling for Android
+```
+mkdir build
+cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=</path/to/android/ndk>build/cmake/android.toolchain.cmake -DANDROID_NDK=</path/to/android/ndk> -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=<platform> ..
+cmake --build . --config Release
+```
+
+Note #1: 64-bit build will also run against 32-bit targets on Windows and Linux operating systems
+
+Note #2: Encountering problems creating a 32-bit build on 64-bit Windows due to the environment not being properly set up and libraries missing? Open the generated .sln file in Visual Studio and build from there instead of running cmake --build. Also note that 64-bit build is going to work on 32-bit targets, so creating a 32-bit build might not be necessary.
 
 ## Using TinyInst
 
@@ -210,7 +226,7 @@ TinyInst allows user to define a target method. If a target method is defined, n
 
 ### Other
 
-`-target_env key=value` - [currently macOS only] specifies an additional environment variable to pass to the target process. Multiple `-target_env` options can be specified to pass multiple environment variables.
+`-target_env key=value` - [currently macOS and Linux/Android only] specifies an additional environment variable to pass to the target process. Multiple `-target_env` options can be specified to pass multiple environment variables.
 
 `-force_dep` - [Windows only] Force-enables DEP for the target process.
 
@@ -254,7 +270,7 @@ Note that on modern Windows, due to CFG, all indirect jump/calls happen from the
 
 ### Return address patching
 
-By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding during exception handling on 64-bit Windows and Mac. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
+By default, when a call happens in instrumented code, the return address being written is going to be the next instruction in the *instrumented code*. This works correctly in most cases, however it will cause problems if the target process ever accesses return addresses for purposes other than return. A notable example of this is stack unwinding during exception handling on 64-bit operating systems. Therefore, targets that need to catch exceptions won’t work correctly with TinyInst by default.
 
 This can be resolved in most cases by adding `-generate_unwind` flag, which causes TinyInst to generate and register stack unwinding / exception handling metadata for the target process. Note that `-generate_unwind` might not work correctly on some older Windows versions due to requiring UNWIND_INFO version 2.
 

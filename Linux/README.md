@@ -20,4 +20,5 @@ limitations under the License.
 
 * x86, x86-64 and ARM64 binaries are supported, running on a 64-bit OS (support for a 32-bit Linux OS is not planned at this time).
 * 32-bit x86 binaries running on a 64-bit Linux OS commonly read return addresses from the stack. This breaks TinyInst unless `-patch_return_addresses` is used. A warning to enable the flag will be printed if such a case is encountered.
+* `-generate_unwind` is not implemented on Linux. For targets that throw C++ exceptions, `-patch_return_addresses` should be used instead.
 

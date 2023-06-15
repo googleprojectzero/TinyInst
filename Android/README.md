@@ -28,3 +28,4 @@ cmake --build . --config Release
 
 * Only ARM64 is supported at this time.
 * Android has no support for Linux-style shared memory, which TinyInst needs to share a coverage buffer between TinyInst and the target process. As a temporary replacement, shared memory in TinyInst on Android is currently implemented by memory-mapping a file in `/data/local/tmp/`. While it may seem like this will be slow, note that TinyInst only writes to coverage buffer when new coverage is encountered. Thus, this workaround should not have a large impact after the initial warmup.
+* `-generate_unwind` is not implemented on Android. For targets that throw C++ exceptions, `-patch_return_addresses` should be used instead.
