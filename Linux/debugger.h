@@ -37,6 +37,11 @@ limitations under the License.
 #include "arch/x86/reg.h"
 #endif
 
+#ifdef __ANDROID__
+  typedef int __ptrace_request;
+#endif
+
+
 enum DebuggerStatus {
   DEBUGGER_NONE,
   DEBUGGER_CONTINUE,
@@ -134,6 +139,8 @@ protected:
   virtual void OnModuleUnloaded(void *module);
   virtual void OnProcessExit() {};
   virtual void OnTargetMethodReached() {}
+  virtual void OnSyscall(int thread_id, uint64_t syscall_number) {}
+  virtual void OnSyscallEnd(int thread_id) {}
 
   virtual bool OnException(Exception *exception_record) { return false; }
   virtual void OnCrashed(Exception *exception_record) { }
@@ -186,6 +193,11 @@ protected:
 
   void GetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv);
   void SetFunctionArguments(uint64_t *arguments, size_t num_arguments, uint64_t sp, CallingConvention callconv);
+
+  void SetSyscallArguments(uint64_t *args, size_t num_args);
+  void GetSyscallArguments(uint64_t *args, size_t num_args);
+
+  int GetCurrentThreadID() { return current_pid; }
 
   int32_t child_ptr_size = sizeof(void *);
  
@@ -277,8 +289,6 @@ private:
 
   void ResolveSymlinks(std::string *path);
 
-  void SetSyscallArgs(uint64_t *args, size_t num_args);
-
   void Watchdog();
   friend void *debugger_watchdog_thread(void *arg);
 
@@ -332,6 +342,10 @@ private:
   bool attach_mode;
 
   bool linux32_warning;
+
+  bool trace_syscalls;
+  std::set<pid_t> pending_syscalls;
+  __ptrace_request ptrace_continue_request;
 };
 
 

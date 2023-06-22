@@ -40,7 +40,8 @@ enum Register {
   R13,
   R14,
   R15,
-  RIP
+  RIP,
+  SYSCALL_RAX
 };
 
 #endif  // ARCH_X86_REG_H

@@ -293,6 +293,8 @@ uint64_t* Debugger::GetRegisterHelper(Register r, arch_reg_struct *regs) {
       return (uint64_t *)&(regs->r15);
     case RIP:
       return (uint64_t *)&(regs->rip);
+    case SYSCALL_RAX:
+      return (uint64_t *)&(regs->orig_rax);
 
     default:
       FATAL("Unimplemented register");
@@ -306,10 +308,18 @@ void Debugger::GetArchRegs(arch_reg_struct *regs) {
   iovec io;
   io.iov_base = regs;
   io.iov_len = sizeof(*regs);
-  ptrace_check(PTRACE_GETREGSET, current_pid, (void*)NT_PRSTATUS, &io);
+  int ptrace_ret = ptrace(PTRACE_GETREGSET, current_pid, (void*)NT_PRSTATUS, &io);
 #else
-  ptrace_check(PTRACE_GETREGS, current_pid, 0, regs);
+  int ptrace_ret = ptrace(PTRACE_GETREGS, current_pid, 0, regs);
 #endif
+  if(ptrace_ret == -1) {
+    if(errno == ESRCH) {
+      // probably the thread is dead
+      memset(regs, 0, sizeof(arch_reg_struct));
+    } else {
+      FATAL("Error reading registers");
+    }
+  }
 }
 
 void Debugger::SetArchRegs(arch_reg_struct *regs) {
@@ -467,7 +477,7 @@ void Debugger::RemoteSyscall() {
   // printf("Syscall status: %x\n", status);
 }
 
-void Debugger::SetSyscallArgs(uint64_t *args, size_t num_args) {
+void Debugger::SetSyscallArguments(uint64_t *args, size_t num_args) {
 #ifdef ARM64
   if(num_args > 0) SetRegister(X0, args[0]);
   if(num_args > 1) SetRegister(X1, args[1]);
@@ -494,6 +504,32 @@ void Debugger::SetSyscallArgs(uint64_t *args, size_t num_args) {
 #endif
 }
 
+void Debugger::GetSyscallArguments(uint64_t *args, size_t num_args) {
+#ifdef ARM64
+  if(num_args > 0) args[0] = GetRegister(X0);
+  if(num_args > 1) args[1] = GetRegister(X1);
+  if(num_args > 2) args[2] = GetRegister(X2);
+  if(num_args > 3) args[3] = GetRegister(X3);
+  if(num_args > 4) args[4] = GetRegister(X4);
+  if(num_args > 5) args[5] = GetRegister(X5);
+#else
+  if(child_ptr_size == 4) {
+    if(num_args > 0) args[0] = GetRegister(RBX);
+    if(num_args > 1) args[1] = GetRegister(RCX);
+    if(num_args > 2) args[2] = GetRegister(RDX);
+    if(num_args > 3) args[3] = GetRegister(RSI);
+    if(num_args > 4) args[4] = GetRegister(RDI);
+    if(num_args > 5) args[5] = GetRegister(RBP);
+  } else {
+    if(num_args > 0) args[0] = GetRegister(RDI);
+    if(num_args > 1) args[1] = GetRegister(RSI);
+    if(num_args > 2) args[2] = GetRegister(RDX);
+    if(num_args > 3) args[3] = GetRegister(R10);
+    if(num_args > 4) args[4] = GetRegister(R8);
+    if(num_args > 5) args[5] = GetRegister(R9);
+  }
+#endif
+}
 
 void* Debugger::RemoteMmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
   SetupSyscalls();
@@ -508,7 +544,7 @@ void* Debugger::RemoteMmap(void *addr, size_t length, int prot, int flags, int f
   args[3] = (uint64_t)flags;
   args[4] = (uint64_t)fd;
   args[5] = (uint64_t)offset;
-  SetSyscallArgs(args, 6);
+  SetSyscallArguments(args, 6);
 
 #ifdef ARM64
   SetRegister(X8, 0xde);
@@ -542,7 +578,7 @@ int Debugger::RemoteMunmap(void *addr, size_t len) {
   uint64_t args[2];
   args[0] = (uint64_t)addr;
   args[1] = (uint64_t)len;
-  SetSyscallArgs(args, 2);
+  SetSyscallArguments(args, 2);
 
 #ifdef ARM64
   SetRegister(X8, 0xd7);
@@ -584,7 +620,7 @@ int Debugger::RemoteOpen(const char *pathname, int flags, mode_t mode) {
   args[1] = pathname_addr;
   args[2] = (uint64_t)flags;
   args[3] = (uint64_t)mode;
-  SetSyscallArgs(args, 4);
+  SetSyscallArguments(args, 4);
 
 #ifdef ARM64
   SetRegister(X8, 0x38);
@@ -620,7 +656,7 @@ int Debugger::RemoteMprotect(void *addr, size_t len, int prot) {
   args[0] = (uint64_t)addr;
   args[1] = (uint64_t)len;
   args[2] = (uint64_t)prot;
-  SetSyscallArgs(args, 3);
+  SetSyscallArguments(args, 3);
 
 #ifdef ARM64
   SetRegister(X8, 0xe2);
@@ -1702,6 +1738,7 @@ void Debugger::SetThreadOptions(pid_t pid) {
   opts |= PTRACE_O_TRACECLONE;
   opts |= PTRACE_O_TRACEFORK;
   opts |= PTRACE_O_TRACEVFORK;
+  if(trace_syscalls) opts |= PTRACE_O_TRACESYSGOOD;
   if(!attach_mode) opts |= PTRACE_O_EXITKILL;
 
   ptrace_check(PTRACE_SETOPTIONS, pid, nullptr, (void *)opts);
@@ -1748,7 +1785,7 @@ DebuggerStatus Debugger::HandleStopped(int status) {
         if(ret_pid != new_thread_pid) FATAL("Unexpected waitpid result waiting for new thread\n");
         if(!WIFSTOPPED(new_thread_status)) FATAL("Unexpected status from a new thread");
         SetThreadOptions(new_thread_pid);
-        ptrace_check(PTRACE_CONT, new_thread_pid, 0, 0);
+        ptrace_check(ptrace_continue_request, new_thread_pid, 0, 0);
         threads.insert(new_thread_pid);
       }
       return DEBUGGER_CONTINUE;
@@ -1771,7 +1808,21 @@ DebuggerStatus Debugger::HandleStopped(int status) {
         return DEBUGGER_TARGET_END;
       }
     }
-  } else if(WSTOPSIG(status) == SIGSEGV) {
+  } else if((WSTOPSIG(status) == (SIGTRAP | 0x80)) && trace_syscalls) {
+    if(pending_syscalls.find(current_pid) == pending_syscalls.end()) {
+      pending_syscalls.insert(current_pid);
+#ifdef ARM64
+      uint64_t syscll_number = GetRegister(X8);
+#else
+      uint64_t syscll_number = GetRegister(SYSCALL_RAX);
+#endif
+      OnSyscall(current_pid, syscll_number);
+    } else {
+      pending_syscalls.erase(current_pid);
+      OnSyscallEnd(current_pid);
+    }
+    return DEBUGGER_CONTINUE;
+  } else if((WSTOPSIG(status) == SIGSEGV) || (WSTOPSIG(status) == SIGBUS)) {
     siginfo_t siginfo;
     ptrace_check(PTRACE_GETSIGINFO, current_pid, 0, &siginfo);
 
@@ -1790,7 +1841,7 @@ DebuggerStatus Debugger::HandleStopped(int status) {
     last_exception.type = OTHER;
     last_exception.ip = (void *)GetRegister(ARCH_PC);
     last_exception.access_address = 0;
-  } else  {
+  } else {
     WARN("Unhandled signal, status: %x", status);
     return DEBUGGER_CONTINUE;
   }
@@ -1829,7 +1880,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
   watchdog_timeout_time = GetCurTime() + timeout;
 
   if(current_pid) {
-    ptrace(PTRACE_CONT, current_pid, 0, 0);
+    ptrace(ptrace_continue_request, current_pid, 0, 0);
   }
 
   while(1) {
@@ -1858,7 +1909,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
     if((threads.find(current_pid) == threads.end()) && (WIFSTOPPED(status))) {
       // must be a new thread
       SetThreadOptions(current_pid);
-      ptrace_check(PTRACE_CONT, current_pid, 0, 0);
+      ptrace_check(ptrace_continue_request, current_pid, 0, 0);
       threads.insert(current_pid);
       continue;
     }
@@ -1867,18 +1918,19 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
       if (trace_debug_events) printf("Debugger: Thread %d exit\n", current_pid);
       threads.erase(current_pid);
       // not using ptrace_check as thread could not exist anymore
-      ptrace(PTRACE_CONT, current_pid, 0, 0);
+      ptrace(ptrace_continue_request, current_pid, 0, 0);
     } else if (WIFSTOPPED(status)) {
       DebuggerStatus debugger_status = DEBUGGER_CONTINUE;
       if(!killing_target) {
         debugger_status = HandleStopped(status);
       }
       if(debugger_status == DEBUGGER_CONTINUE) {
-        ptrace_check(PTRACE_CONT, current_pid, 0, 0);
+        ptrace_check(ptrace_continue_request, current_pid, 0, 0);
       } else {
         return debugger_status;
       }
     } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+      if(trace_syscalls) pending_syscalls.erase(current_pid);
       if(current_pid == main_pid) {
         is_target_alive = false;
         OnProcessExit();
@@ -2025,7 +2077,7 @@ DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
 
   for(auto iter = threads.begin(); iter != threads.end(); ++iter) {
     // we'll continue the main thread in Continue() below
-    if(*iter != current_pid) ptrace_check(PTRACE_CONT, *iter, 0, 0);
+    if(*iter != current_pid) ptrace_check(ptrace_continue_request, *iter, 0, 0);
   }
 
   return Continue(timeout);
@@ -2055,6 +2107,7 @@ void Debugger::CleanupTarget() {
   DeleteBreakpoints();
   threads.clear();
   loaded_modules.clear();
+  pending_syscalls.clear();
 
   ClearSharedMemory();
 
@@ -2168,4 +2221,8 @@ void Debugger::Init(int argc, char **argv) {
   pthread_create(&thread_id, NULL, debugger_watchdog_thread, this);
 
   curr_shm_index = 0;
+
+  trace_syscalls = GetBinaryOption("-trace_syscalls", argc, argv, false);
+  if(trace_syscalls) ptrace_continue_request = PTRACE_SYSCALL;
+  else ptrace_continue_request = PTRACE_CONT;
 }
