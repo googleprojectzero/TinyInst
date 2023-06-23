@@ -33,4 +33,6 @@ These files implement hooks for SSL_read and SSL_write functions, to be applied 
 
 The main executable for the `SSLInst` client is implemented in [sslhook-main.cpp](https://github.com/googleprojectzero/TinyInst/blob/master/sslhook-main.cpp).
 
+### SyscallHook API
 
+On Linux/Android, a special SyscallHook API is exposed that allows for easier syscall hooking. A syscall hook should inherit from the `SyscallHook` class, override `OnSyscall` and/or `OnSyscallEnd()` and be registered via `RegisterSyscallHook` function. SyscallHook API implements much of the same helper functions as the Hook API.

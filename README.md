@@ -206,6 +206,8 @@ In addition to the general-purpose API documented above, TinyInst also implement
 
 `-trace_module_entries` - prints all entries into instrumented code
 
+`-trace_syscalls` - [Linux/Android only] Enables client to receive syscall start/end events via `OnSyscall()` / `OnSyscallEnd()` callbacks.
+
 `-full_address_map` - Maintains an instruction-level map of addresses in instrumented code to addresses in the original code. Memory-heavy, but useful for debugging.
 
 ### Target method and persistence
