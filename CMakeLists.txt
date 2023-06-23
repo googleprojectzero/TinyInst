@@ -117,6 +117,8 @@ elseif (UNIX)
        Linux/elffile.cpp
        Linux/procmaps.h
        Linux/procmaps.cpp
+       Linux/syscallhook.h
+       Linux/syscallhook.cpp
   )
 endif()
 

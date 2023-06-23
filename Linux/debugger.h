@@ -41,6 +41,15 @@ limitations under the License.
   typedef int __ptrace_request;
 #endif
 
+#ifdef ARM64
+#define SYSCALL_RETURN_REGISTER X0
+#define SYSCALL_NUMER_REGISTER X8
+#else
+#define SYSCALL_RETURN_REGISTER RAX
+#define SYSCALL_NUMER_REGISTER SYSCALL_RAX
+#endif
+
+class SyscallHook;
 
 enum DebuggerStatus {
   DEBUGGER_NONE,
@@ -199,6 +208,8 @@ protected:
 
   int GetCurrentThreadID() { return current_pid; }
 
+  void RegisterSyscallHook(SyscallHook *hook);
+
   int32_t child_ptr_size = sizeof(void *);
  
   bool child_entrypoint_reached;
@@ -346,8 +357,9 @@ private:
   bool trace_syscalls;
   std::set<pid_t> pending_syscalls;
   __ptrace_request ptrace_continue_request;
+
+  friend class SyscallHook;
+  std::list<SyscallHook *> syscall_hooks;
 };
-
-
 
 #endif /* DEBUGGER_H */

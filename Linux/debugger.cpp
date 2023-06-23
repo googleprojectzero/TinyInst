@@ -32,6 +32,7 @@ limitations under the License.
 
 #include "elffile.h"
 #include "debugger.h"
+#include "syscallhook.h"
 
 #define BREAKPOINT_UNKNOWN 0x0
 #define BREAKPOINT_ENTRYPOINT 0x01
@@ -380,6 +381,19 @@ void Debugger::AddBreakpoint(void *address, int type) {
   RemoteRead(address, &(new_breakpoint->original_opcode), sizeof(new_breakpoint->original_opcode));
   RemoteWrite(address, (void*)&breakpoint_bytes, sizeof(breakpoint_bytes));
 
+  if (type & BREAKPOINT_NOTIFICATION) {
+#ifdef ARM64
+    uint32_t expected_opcode = 0xd65f03c0;
+#else
+    unsigned char expected_opcode = 0xc3;
+#endif
+    if((new_breakpoint->original_opcode != expected_opcode) && 
+       (new_breakpoint->original_opcode != breakpoint_bytes))
+    {
+      FATAL("Unexpected notifier function %x", (uint32_t)new_breakpoint->original_opcode);
+    }
+  }
+
   new_breakpoint->address = address;
   new_breakpoint->type = type;
   breakpoints.push_back(new_breakpoint);
@@ -529,6 +543,11 @@ void Debugger::GetSyscallArguments(uint64_t *args, size_t num_args) {
     if(num_args > 5) args[5] = GetRegister(R9);
   }
 #endif
+}
+
+void Debugger::RegisterSyscallHook(SyscallHook *hook) {
+  hook->SetDebugger(this);
+  syscall_hooks.push_back(hook);
 }
 
 void* Debugger::RemoteMmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
@@ -1317,14 +1336,6 @@ int Debugger::HandleDebuggerBreakpoint() {
     if (tmp_breakpoint->address == (void*)(last_exception.ip)) {
       breakpoint = tmp_breakpoint;
       if (breakpoint->type & BREAKPOINT_NOTIFICATION) {
-#ifdef ARM64
-        uint32_t expected_opcode = 0xd65f03c0;
-#else
-        unsigned char expected_opcode = 0xc3;
-#endif
-        if(breakpoint->original_opcode != expected_opcode) {
-          FATAL("Unexpected notifier function %x", (uint32_t)breakpoint->original_opcode);
-        }
         OnNotifier();
         return BREAKPOINT_NOTIFICATION;
       }
@@ -1811,15 +1822,21 @@ DebuggerStatus Debugger::HandleStopped(int status) {
   } else if((WSTOPSIG(status) == (SIGTRAP | 0x80)) && trace_syscalls) {
     if(pending_syscalls.find(current_pid) == pending_syscalls.end()) {
       pending_syscalls.insert(current_pid);
-#ifdef ARM64
-      uint64_t syscll_number = GetRegister(X8);
-#else
-      uint64_t syscll_number = GetRegister(SYSCALL_RAX);
-#endif
-      OnSyscall(current_pid, syscll_number);
+      uint64_t syscall_number = GetRegister(SYSCALL_NUMER_REGISTER);
+
+      OnSyscall(current_pid, syscall_number);
+
+      for(auto iter = syscall_hooks.begin(); iter != syscall_hooks.end(); iter++) {
+        (*iter)->OnSyscallInternal(current_pid, syscall_number);
+      }
     } else {
       pending_syscalls.erase(current_pid);
+
       OnSyscallEnd(current_pid);
+
+      for(auto iter = syscall_hooks.begin(); iter != syscall_hooks.end(); iter++) {
+        (*iter)->OnSyscallEndInternal(current_pid);
+      }
     }
     return DEBUGGER_CONTINUE;
   } else if((WSTOPSIG(status) == SIGSEGV) || (WSTOPSIG(status) == SIGBUS)) {
@@ -2103,6 +2120,10 @@ void Debugger::CleanupTarget() {
   killing_target = false;
   attach_mode = false;
   is_target_alive = false;
+
+  for(auto iter = syscall_hooks.begin(); iter != syscall_hooks.end(); iter++) {
+    (*iter)->OnProcessExit();
+  }
 
   DeleteBreakpoints();
   threads.clear();
