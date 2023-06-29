@@ -33,6 +33,7 @@ limitations under the License.
 #include <sys/types.h>
 #include <sys/ptrace.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #include "macOS/debugger.h"
 #include "common.h"
@@ -1846,6 +1847,16 @@ void Debugger::StartProcess(int argc, char **argv) {
     FATAL("Number of arguments is not strictly positive");
   }
 
+  posix_spawn_file_actions_t *action_ptr = NULL;
+  posix_spawn_file_actions_t action;
+
+  if(mute_child) {
+    action_ptr = &action;
+    posix_spawn_file_actions_init(&action);
+    posix_spawn_file_actions_addopen (&action, STDOUT_FILENO, "/dev/null", O_WRONLY|O_APPEND, 0);
+    posix_spawn_file_actions_addopen (&action, STDERR_FILENO, "/dev/null", O_WRONLY|O_APPEND, 0);
+  }
+
   pid_t pid;
   int status;
   posix_spawnattr_t attr;
@@ -1865,7 +1876,7 @@ void Debugger::StartProcess(int argc, char **argv) {
   }
 
   char **envp = GetEnvp();
-  status = posix_spawn(&pid, argv[0], NULL, &attr, argv, envp);
+  status = posix_spawn(&pid, argv[0], action_ptr, &attr, argv, envp);
   if (status != 0) {
     FATAL("Error (%s) spawning the process\n", strerror(status));
   }
@@ -2037,6 +2048,8 @@ void Debugger::Init(int argc, char **argv) {
   target_memory_limit = 0;
   option = GetOption("-mem_limit", argc, argv);
   if (option) target_memory_limit = (uint64_t)strtoul(option, NULL, 0) * 1024 * 1024;
+
+  mute_child = GetBinaryOption("-mute_child", argc, argv, false);
 
   dyld_address = NULL;
 }

@@ -434,6 +434,8 @@ private:
   void *m_dyld_debugger_notification;
 
   void *dyld_address;
+  
+  bool mute_child;
 };
 
 
