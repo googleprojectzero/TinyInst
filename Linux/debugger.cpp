@@ -1629,12 +1629,12 @@ uint64_t Debugger::GetSegment(uint64_t header, uint32_t type, uint64_t *segment_
   if(e_ident == 1) {
     uint32_t program_table32;
     RemoteRead((void *)(header + 0x1C), &program_table32, sizeof(program_table32));
-    program_table = program_table32 + pie_offset;
+    program_table = program_table32 + header;
     RemoteRead((void *)(header + 0x2A), &e_phentsize, sizeof(e_phentsize)); 
     RemoteRead((void *)(header + 0x2C), &e_phnum, sizeof(e_phnum)); 
   } else {
     RemoteRead((void *)(header + 0x20), &program_table, sizeof(program_table));
-    program_table += pie_offset;
+    program_table += header;
     RemoteRead((void *)(header + 0x36), &e_phentsize, sizeof(e_phentsize)); 
     RemoteRead((void *)(header + 0x38), &e_phnum, sizeof(e_phnum)); 
   }
