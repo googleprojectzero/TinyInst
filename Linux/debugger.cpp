@@ -1032,7 +1032,15 @@ int Debugger::GetLoadedModulesT(std::set<LoadedModule> &modules, bool set_breakp
   }
 
   if(set_breakpoint) {
-    AddBreakpoint((void *)(uint64_t)debug.r_brk, BREAKPOINT_NOTIFICATION); 
+    uint32_t inst = 0;
+    uint32_t endbr32 = 0xfb1e0ff3;
+    uint32_t endbr64 = 0xfa1e0ff3;
+    RemoteRead((void *)debug.r_brk, &inst, sizeof(inst));
+    if ((child_ptr_size == 4 && inst == endbr32) || (child_ptr_size == 8 && inst == endbr64)) {
+      AddBreakpoint((void *)((uint64_t)debug.r_brk + sizeof(inst)), BREAKPOINT_NOTIFICATION);
+    } else {
+      AddBreakpoint((void *)(uint64_t)debug.r_brk, BREAKPOINT_NOTIFICATION);
+    }
   }
 
   return 1;
