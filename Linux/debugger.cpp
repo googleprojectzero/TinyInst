@@ -420,7 +420,7 @@ void Debugger::OnModuleLoaded(void *module, char *module_name) {
   if (target_function_defined && !strcasecmp(module_name, target_module)) {
     target_address = GetTargetAddress(module);
     if (!target_address) {
-      FATAL("Error determing target method address\n");
+      FATAL("Error determining target method address\n");
     }
 
     AddBreakpoint(target_address, BREAKPOINT_TARGET);
