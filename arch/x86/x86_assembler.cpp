@@ -184,6 +184,11 @@ bool X86Assembler::IsRipRelative(ModuleInfo *module,
 
   if (!rip_relative) return false;
 
+  // some wide NOPS migth appear as having a RIP relative offset
+  // treat them as normal instructions
+  xed_category_enum_t category = xed_decoded_inst_get_category(&inst.xedd);
+  if(category == XED_CATEGORY_WIDENOP) return false;
+
   size_t instruction_size = xed_decoded_inst_get_length(&inst.xedd);
   *mem_address = (size_t)(instruction_address + instruction_size + disp);
 
