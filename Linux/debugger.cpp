@@ -1459,7 +1459,7 @@ void Debugger::GetImageSize(void *base_address, size_t *min_address, size_t *max
   std::vector<MapsEntry> map_entries;
   maps_parser.Parse(main_pid, map_entries);
   if(map_entries.empty()) FATAL("Error parsing /proc/%d/maps", main_pid);
-  for(auto iter = map_entries.begin(); iter <= map_entries.end(); iter++) {
+  for(auto iter = map_entries.begin(); iter != map_entries.end(); iter++) {
     if(iter->name == elf_filename) {
       if(iter->addr_from < min) min = iter->addr_from;
       if(iter->addr_to > max) max = iter->addr_to;
@@ -1490,7 +1490,7 @@ void Debugger::ExtractCodeRanges(void *module_base,
   std::vector<MapsEntry> map_entries;
   maps_parser.Parse(main_pid, map_entries);
   if(map_entries.empty()) FATAL("Error parsing /proc/%d/maps", main_pid);
-  for(auto iter = map_entries.begin(); iter <= map_entries.end(); iter++) {
+  for(auto iter = map_entries.begin(); iter != map_entries.end(); iter++) {
     if(iter->name != elf_filename) continue;
 
     if(!(iter->permissions & PROT_EXEC)) continue;
@@ -1552,7 +1552,7 @@ void Debugger::PatchPointersRemote(void *base_address, std::unordered_map<size_t
   std::vector<MapsEntry> map_entries;
   maps_parser.Parse(main_pid, map_entries);
   if(map_entries.empty()) FATAL("Error parsing /proc/%d/maps", main_pid);
-  for(auto iter = map_entries.begin(); iter <= map_entries.end(); iter++) {
+  for(auto iter = map_entries.begin(); iter != map_entries.end(); iter++) {
     if(iter->name != elf_filename) continue;
 
     PatchPointersRemote(iter->addr_from, iter->addr_to, search_replace);
@@ -1731,7 +1731,7 @@ void Debugger::OnProcessCreated() {
   std::vector<MapsEntry> map_entries;
   maps_parser.Parse(main_pid, map_entries);
   if(map_entries.empty()) FATAL("Error parsing /proc/%d/maps", main_pid);
-  for(auto iter = map_entries.begin(); iter <= map_entries.end(); iter++) {
+  for(auto iter = map_entries.begin(); iter != map_entries.end(); iter++) {
     if(iter->name == resolved_path) {
       exe_address = iter->addr_from;
       break;
