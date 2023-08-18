@@ -17,6 +17,7 @@ limitations under the License.
 #ifndef COVERAGE_H
 #define COVERAGE_H
 
+#include <inttypes.h>
 #include <string>
 #include <set>
 #include <list>
