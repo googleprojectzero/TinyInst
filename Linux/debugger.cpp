@@ -390,7 +390,7 @@ void Debugger::AddBreakpoint(void *address, int type) {
     if((new_breakpoint->original_opcode != expected_opcode) && 
        (new_breakpoint->original_opcode != breakpoint_bytes))
     {
-      FATAL("Unexpected notifier function %x", (uint32_t)new_breakpoint->original_opcode);
+      WARN("Unexpected notifier function %x", (uint32_t)new_breakpoint->original_opcode);
     }
   }
 
