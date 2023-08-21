@@ -159,6 +159,8 @@ protected:
   template<typename T>
   void PatchPointersRemoteT(size_t min_address, size_t max_address, std::unordered_map<size_t, size_t>& search_replace);
 
+  HANDLE GetChildProcessHandle() { return child_handle; }
+
 private:
   struct Breakpoint {
     void *address;

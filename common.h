@@ -38,15 +38,6 @@ limitations under the License.
     #define ArgvEscape ArgvEscapeMacOS
 #endif
 
-enum {
-  /* 00 */ FAULT_NONE,
-  /* 01 */ FAULT_TMOUT,
-  /* 02 */ FAULT_CRASH,
-  /* 03 */ FAULT_ERROR,
-  /* 04 */ FAULT_NOINST,
-  /* 05 */ FAULT_NOBITS
-};
-
 #define SAY(...)    printf(__VA_ARGS__)
 
 #define WARN(...) do { \
