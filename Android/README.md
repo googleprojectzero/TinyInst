@@ -20,7 +20,7 @@ limitations under the License.
 ```
 mkdir build-android
 cd build-android
-cmake -DCMAKE_TOOLCHAIN_FILE=</path/to/android/ndk>build/cmake/android.toolchain.cmake -DANDROID_NDK=</path/to/android/ndk> -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=<platform> ..
+cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/android/ndk/build/cmake/android.toolchain.cmake -DANDROID_NDK=/path/to/android/ndk -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=<platform> ..
 cmake --build . --config Release
 ```
 
