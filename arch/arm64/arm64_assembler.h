@@ -66,7 +66,8 @@ class Arm64Assembler : public Assembler {
                    bool is_signed, uint64_t value);
 
  private:
-  uint8_t MovIndirectTarget(ModuleInfo *module, Instruction &inst);
+  uint8_t GetIndirectTarget(Instruction &inst, uint8_t *is_pac);
+  void MovIndirectTarget(ModuleInfo *module, uint8_t target_address_reg, uint8_t is_pac);
 
   void ReadStack(ModuleInfo *module, int32_t offset);
   void WriteStack(ModuleInfo *module, int32_t offset);
