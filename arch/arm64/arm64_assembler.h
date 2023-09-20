@@ -69,6 +69,11 @@ class Arm64Assembler : public Assembler {
   uint8_t GetIndirectTarget(Instruction &inst, uint8_t *is_pac);
   void MovIndirectTarget(ModuleInfo *module, uint8_t target_address_reg, uint8_t is_pac);
 
+  void TranslateSimdLdrLiteral(ModuleInfo *module,
+                               Instruction &inst,
+                               const unsigned char *input,
+                               const unsigned char *input_address_remote);
+
   void ReadStack(ModuleInfo *module, int32_t offset);
   void WriteStack(ModuleInfo *module, int32_t offset);
 

@@ -469,6 +469,7 @@ static int32_t GetRipRelativeOffset(Instruction &inst) {
 
     case arm64::Opcode::kLdrLiteral:
     case arm64::Opcode::kLdrsLiteral:
+    case arm64::Opcode::kSimdLdrLiteral:
       off64 =
           std::get<arm64::ImmediateOffset>(inst.instr.operands[1]).offset.value;
       break;
@@ -497,6 +498,7 @@ bool Arm64Assembler::IsRipRelative(ModuleInfo *module, Instruction &inst,
   switch (inst.instr.opcode) {
     case arm64::kLdrLiteral:
     case arm64::kLdrsLiteral:
+    case arm64::kSimdLdrLiteral:
     case arm64::kAdr:
       pc_relative = true;
       offset = GetRipRelativeOffset(inst);
@@ -579,6 +581,11 @@ void Arm64Assembler::FixInstructionAndOutput(
       break;
     }
 
+    case arm64::Opcode::kSimdLdrLiteral: {
+      TranslateSimdLdrLiteral(module, inst, input, input_address_remote);
+      break;
+    }
+
     case arm64::Opcode::kLdrsLiteral: {
       FATAL("arm64::kLdrsLiteral");
       break;
@@ -594,6 +601,29 @@ void Arm64Assembler::FixInstructionAndOutput(
       FATAL("not implemented yet");
       break;
   }
+}
+
+void Arm64Assembler::TranslateSimdLdrLiteral(ModuleInfo *module,
+                             Instruction &inst,
+                             const unsigned char *input,
+                             const unsigned char *input_address_remote)
+{
+  // push X0
+  OffsetStack(module, -tinyinst_.sp_offset - 16);
+  WriteRegStack(module, Register::X0, 0);
+
+  //load address into X0;
+  uint64_t addr = (uint64_t)input_address_remote;
+  addr += GetRipRelativeOffset(inst);
+  EmitLoadLit(module, X0, 64, false, addr);
+
+  uint32_t orig_instr = *(uint32_t *)input;
+  uint32_t fixed_instr = ldr_simd_x0_from_ldr_simd_literal(orig_instr);
+  tinyinst_.WriteCode(module, &fixed_instr, sizeof(fixed_instr));
+
+  // pop X0
+  ReadRegStack(module, Register::X0, 0);
+  OffsetStack(module, tinyinst_.sp_offset + 16);
 }
 
 void Arm64Assembler::InstrumentRet(

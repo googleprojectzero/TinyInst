@@ -57,5 +57,6 @@ uint32_t bl(size_t instr_address, size_t address);
 uint32_t br(Register dst_reg);
 uint32_t b_cond(const std::string &cond, int32_t off);
 
+uint32_t ldr_simd_x0_from_ldr_simd_literal(uint32_t orig_inst);
 
 #endif  // ARCH_ARM64_ARM64_HELPERS_H

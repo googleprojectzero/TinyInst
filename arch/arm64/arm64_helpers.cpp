@@ -460,3 +460,23 @@ uint32_t b(size_t instr_address, size_t address) {
 uint32_t bl(size_t instr_address, size_t address) {
   return branch_imm(instr_address, address, true);
 }
+
+uint32_t ldr_simd_x0_from_ldr_simd_literal(uint32_t orig_inst) {
+  uint32_t instr = orig_inst & 0x1F;
+  instr |= 0x3C400000;
+  uint32_t opc = (orig_inst & 0xC0000000) >> 30;
+  if(opc == 0b00) {
+    // 32-bit
+    instr |= bits(31, 30, 0b10);
+    instr |= bits(23, 22, 0b01);
+  } else if (opc == 0b01) {
+    instr |= bits(31, 30, 0b11);
+    instr |= bits(23, 22, 0b01);
+  } else if (opc == 0b10) {
+    instr |= bits(31, 30, 0b00);
+    instr |= bits(23, 22, 0b11);
+  } else {
+    FATAL("Incorrect ldr_simd_literal instruction");
+  }
+  return instr;
+}
