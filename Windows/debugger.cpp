@@ -97,6 +97,8 @@ void Debugger::SaveRegisters(SavedRegisters* registers) {
 
 void Debugger::RestoreRegisters(SavedRegisters* registers) {
   have_thread_context = false;
+  memcpy(&lcContext, &registers->saved_context, sizeof(registers->saved_context));
+
   HANDLE thread_handle = OpenThread(THREAD_ALL_ACCESS, FALSE, thread_id);
   if (!SetThreadContext(thread_handle, &lcContext)) {
     FATAL("Error restoring registers");
