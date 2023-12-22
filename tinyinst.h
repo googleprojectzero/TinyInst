@@ -152,6 +152,7 @@ protected:
 
   virtual void OnModuleInstrumented(ModuleInfo* module);
   virtual void OnModuleUninstrumented(ModuleInfo* module);
+  virtual void OnBasicBlcokTranslated(ModuleInfo *module, size_t start_offset, size_t end_offset) { }
 
   int32_t sp_offset;
   Assembler* assembler_;

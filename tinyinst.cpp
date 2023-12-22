@@ -603,6 +603,8 @@ void TinyInst::TranslateBasicBlock(char *address,
   unwind_generator->OnBasicBlockEnd(module,
     (size_t)address + offset,
     GetCurrentInstrumentedAddress(module));
+
+  OnBasicBlcokTranslated(module, original_offset, original_offset + last_offset);
 }
 
 // starting from address, starts instrumenting code in the module
