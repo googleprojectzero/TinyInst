@@ -1755,8 +1755,6 @@ DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
 
   if (!DebugActiveProcess(pid)) {
     DWORD error_code = GetLastError();
-    
-
     if(error_code == 5) {
       HANDLE hToken = NULL;
       LUID luid;
@@ -1835,7 +1833,7 @@ DebuggerStatus Debugger::Continue(uint32_t timeout) {
 
   return dbg_last_status;
 }
-
+ 
 // initializes options from command line
 void Debugger::Init(int argc, char **argv) {
   have_thread_context = false;
