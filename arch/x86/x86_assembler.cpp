@@ -785,12 +785,6 @@ void X86Assembler::HandleBasicBlockEnd(
     const char *target_address1 = address + offset;
     const char *target_address2 = address + offset + disp;
 
-    if (tinyinst_.GetModule((size_t)target_address2) != module) {
-      WARN("Relative jump to a differen module in bb at %p\n", address);
-      tinyinst_.InvalidInstruction(module);
-      return;
-    }
-
     // preliminary encode jump instruction
     // displacement might be changed later as we don't know
     // the size of edge instrumentation yet
@@ -843,6 +837,11 @@ void X86Assembler::HandleBasicBlockEnd(
                                   jump_size);
     }
 
+    if (tinyinst_.GetModule((size_t)target_address2) != module) {
+      tinyinst_.OutsideJump(module, (size_t)target_address2);
+      return;
+    }
+
     // instrument the 2nd edge
     tinyinst_.InstrumentEdge(module, module, (size_t)address,
                              (size_t)target_address2);
@@ -879,8 +878,7 @@ void X86Assembler::HandleBasicBlockEnd(
       const char *target_address = address + offset + disp;
 
       if (tinyinst_.GetModule((size_t)target_address) != module) {
-        WARN("Relative jump to a differen module in bb at %p\n", address);
-        tinyinst_.InvalidInstruction(module);
+        tinyinst_.OutsideJump(module, (size_t)target_address);
         return;
       }
 
@@ -937,12 +935,6 @@ void X86Assembler::HandleBasicBlockEnd(
       const char *return_address = address + offset;
       const char *call_address = address + offset + disp;
 
-      if (tinyinst_.GetModule((size_t)call_address) != module) {
-        WARN("Relative jump to a differen module in bb at %p\n", address);
-        tinyinst_.InvalidInstruction(module);
-        return;
-      }
-
       // fix the displacement and emit the call
       if (!tinyinst_.patch_return_addresses) {
         unsigned char encoded[15];
@@ -969,6 +961,11 @@ void X86Assembler::HandleBasicBlockEnd(
             (uint32_t)(module->instrumented_code_allocated - 4), queue,
             offset_fixes);
 
+        if (tinyinst_.GetModule((size_t)call_address) != module) {
+          tinyinst_.OutsideJump(module, (size_t)call_address);
+          return;
+        }
+
         // jmp call_address
         tinyinst_.WriteCode(module, JMP, sizeof(JMP));
 
@@ -980,6 +977,11 @@ void X86Assembler::HandleBasicBlockEnd(
 
       } else {
         PushReturnAddress(module, (uint64_t)return_address);
+
+        if (tinyinst_.GetModule((size_t)call_address) != module) {
+          tinyinst_.OutsideJump(module, (size_t)call_address);
+          return;
+        }
 
         // jmp call_address
         tinyinst_.WriteCode(module, JMP, sizeof(JMP));

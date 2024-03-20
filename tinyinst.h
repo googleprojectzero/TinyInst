@@ -181,7 +181,10 @@ private:
                           uint32_t jmp_offset,
                           std::set<char *> *queue,
                           std::list<std::pair<uint32_t, uint32_t>> *offset_fixes);
-  void InvalidInstruction(ModuleInfo *module);
+  void InvalidInstruction(ModuleInfo* module);
+
+  // relative jump outside of current module
+  void OutsideJump(ModuleInfo* module, size_t address);
 
   // needed to support cross-module linking
   // on module unloads / reloads
@@ -310,6 +313,7 @@ class ModuleInfo {
   size_t jumptable_address_offset;
 
   std::unordered_set<size_t> invalid_instructions;
+  std::unordered_map<size_t, size_t> outside_jumps;
   std::unordered_map<size_t, size_t> tracepoints;
 
   std::unordered_set<size_t> entry_offsets;

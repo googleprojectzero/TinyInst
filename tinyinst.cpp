@@ -78,6 +78,8 @@ void ModuleInfo::ClearInstrumentation() {
   jumptable_address_offset = 0;
 
   invalid_instructions.clear();
+  outside_jumps.clear();
+
   tracepoints.clear();
 }
 
@@ -301,6 +303,15 @@ bool TinyInst::HandleBreakpoint(void *address) {
     return true;
   }
 
+  auto iter = module->outside_jumps.find((size_t)address);
+  if (iter != module->outside_jumps.end()) {
+
+    WARN("Executing relative jump otside the current module");
+    SetRegister(ARCH_PC, iter->second);
+
+    return true;
+  }
+
   if(unwind_generator->HandleBreakpoint(module, address)) {
     return true;
   }
@@ -480,6 +491,13 @@ void TinyInst::InvalidInstruction(ModuleInfo *module) {
   assembler_->Breakpoint(module);
   module->invalid_instructions.insert(breakpoint_address);
   assembler_->Crash(module);
+}
+
+void TinyInst::OutsideJump(ModuleInfo* module, size_t address) {
+  size_t breakpoint_address = (size_t)module->instrumented_code_remote +
+    module->instrumented_code_allocated;
+  assembler_->Breakpoint(module);
+  module->outside_jumps[breakpoint_address] = address;
 }
 
 void TinyInst::InstrumentIndirect(ModuleInfo *module,
