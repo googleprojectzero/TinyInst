@@ -306,7 +306,7 @@ bool TinyInst::HandleBreakpoint(void *address) {
   auto iter = module->outside_jumps.find((size_t)address);
   if (iter != module->outside_jumps.end()) {
 
-    WARN("Executing relative jump otside the current module");
+    WARN("Executing relative jump outside the current module");
     SetRegister(ARCH_PC, iter->second);
 
     return true;
