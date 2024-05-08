@@ -1075,13 +1075,13 @@ void Debugger::GetFunctionArguments(uint64_t* arguments, size_t num_args, uint64
   case CALLCONV_FASTCALL:
     if (num_args > 0) arguments[0] = lcContext.Rcx;
     if (num_args > 1) arguments[1] = lcContext.Rdx;
-    if (num_args > 3) {
+    if (num_args > 2) {
       ReadStack((void*)(sp + child_ptr_size), arguments + 2, num_args - 2);
     }
     break;
   case CALLCONV_THISCALL:
     if (num_args > 0) arguments[0] = lcContext.Rcx;
-    if (num_args > 3) {
+    if (num_args > 1) {
       ReadStack((void*)(sp + child_ptr_size), arguments + 1, num_args - 1);
     }
     break;
@@ -1098,13 +1098,13 @@ void Debugger::GetFunctionArguments(uint64_t* arguments, size_t num_args, uint64
   case CALLCONV_FASTCALL:
     if (num_args > 0) arguments[0] = (uint64_t)lcContext.Ecx;
     if (num_args > 1) arguments[1] = (uint64_t)lcContext.Edx;
-    if (num_args > 3) {
+    if (num_args > 2) {
       ReadStack((void*)(sp + child_ptr_size), arguments + 2, num_args - 2);
     }
     break;
   case CALLCONV_THISCALL:
     if (num_args > 0) arguments[0] = (uint64_t)lcContext.Ecx;
-    if (num_args > 3) {
+    if (num_args > 1) {
       ReadStack((void*)(sp + child_ptr_size), arguments + 1, num_args - 1);
     }
     break;
