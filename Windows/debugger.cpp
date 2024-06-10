@@ -555,8 +555,8 @@ void Debugger::ExtractCodeRanges(void *module_base,
                                  std::list<AddressRange> *executable_ranges,
                                  size_t *code_size)
 {
-  LPCVOID end_address = (char *)max_address;
-  LPCVOID cur_address = module_base;
+  LPCVOID end_address = (void *)max_address;
+  LPCVOID cur_address = (void *)min_address;
   MEMORY_BASIC_INFORMATION meminfobuf;
 
   AddressRange newRange;
@@ -798,67 +798,103 @@ void Debugger::AddBreakpoint(void *address, int type) {
 // that works on another process
 DWORD Debugger::GetProcOffset(HMODULE module, const char *name) {
   char* base_of_dll = (char*)module;
-  DWORD size_of_image = GetImageSize(base_of_dll);
 
-  // try the exported symbols next
-  char* modulebuf = (char*)malloc(size_of_image);
+  char* headers = (char*)malloc(4096);
+
   SIZE_T num_read;
-  if (!ReadProcessMemory(child_handle, base_of_dll, modulebuf, size_of_image, &num_read) ||
-    (num_read != size_of_image))
+  if (!ReadProcessMemory(child_handle, base_of_dll, headers, 4096, &num_read) ||
+    (num_read != 4096))
   {
     FATAL("Error reading target memory\n");
   }
 
   DWORD pe_offset;
-  pe_offset = *((DWORD *)(modulebuf + 0x3C));
-  char *pe = modulebuf + pe_offset;
+  pe_offset = *((DWORD *)(headers + 0x3C));
+  char *pe = headers + pe_offset;
   DWORD signature = *((DWORD *)pe);
   if (signature != 0x00004550) {
-    free(modulebuf);
+    free(headers);
     return 0;
   }
   pe = pe + 0x18;
   WORD magic = *((WORD *)pe);
   DWORD exporttableoffset;
+  DWORD exporttablesize;
   if (magic == 0x10b) {
-    exporttableoffset = *(DWORD *)(pe + 96);
+    exporttableoffset = *(DWORD*)(pe + 96);
+    exporttablesize = *(DWORD*)(pe + 100);
   } else if (magic == 0x20b) {
     exporttableoffset = *(DWORD *)(pe + 112);
+    exporttablesize = *(DWORD*)(pe + 116);
   } else {
-    free(modulebuf);
+    free(headers);
     return 0;
   }
 
   if (!exporttableoffset) {
-    free(modulebuf);
+    free(headers);
     return 0;
   }
 
-  char *exporttable = modulebuf + exporttableoffset;
+  char* exporttable = (char*)malloc(exporttablesize);
+  if (!ReadProcessMemory(child_handle, base_of_dll + exporttableoffset, exporttable, exporttablesize, &num_read) ||
+    (num_read != exporttablesize))
+  {
+    FATAL("Error reading target memory\n");
+  }  
 
   DWORD numentries = *(DWORD *)(exporttable + 24);
   DWORD addresstableoffset = *(DWORD *)(exporttable + 28);
   DWORD nameptrtableoffset = *(DWORD *)(exporttable + 32);
   DWORD ordinaltableoffset = *(DWORD *)(exporttable + 36);
-  DWORD *nameptrtable = (DWORD *)(modulebuf + nameptrtableoffset);
-  WORD *ordinaltable = (WORD *)(modulebuf + ordinaltableoffset);
-  DWORD *addresstable = (DWORD *)(modulebuf + addresstableoffset);
 
-  DWORD i;
-  for (i = 0; i < numentries; i++) {
-    char *nameptr = modulebuf + nameptrtable[i];
-    if (strcmp(name, nameptr) == 0) break;
+  addresstableoffset -= exporttableoffset;
+  nameptrtableoffset -= exporttableoffset;
+  ordinaltableoffset -= exporttableoffset;
+
+  if ((addresstableoffset >= exporttablesize) ||
+    (nameptrtableoffset >= exporttablesize) ||
+    (ordinaltableoffset >= exporttablesize))
+  {
+    WARN("Didn't read all export information");
+    free(headers);
+    free(exporttable);
+    return 0;
   }
 
-  if (i == numentries) {
-    free(modulebuf);
+  DWORD *nameptrtable = (DWORD *)(exporttable + nameptrtableoffset);
+  WORD *ordinaltable = (WORD *)(exporttable + ordinaltableoffset);
+  DWORD *addresstable = (DWORD *)(exporttable + addresstableoffset);
+
+  DWORD i;
+  DWORD found = 0;
+  for (i = 0; i < numentries; i++) {
+    DWORD nameoffset = nameptrtable[i] - exporttableoffset;
+    if (nameoffset >= exporttablesize)
+    {
+      WARN("Didn't read all export information");
+      break;
+    }
+    char *nameptr = exporttable + nameoffset;
+    // printf("Name: %s\n", nameptr);
+    if (strcmp(name, nameptr) == 0) {
+      found = 1;
+      break;
+    }
+  }
+
+  if (!found) {
+    free(headers);
+    free(exporttable);
     return 0;
   }
 
   WORD oridnal = ordinaltable[i];
   DWORD offset = addresstable[oridnal];
 
-  free(modulebuf);
+  free(headers);
+  free(exporttable);
+
   return offset;
 }
 
