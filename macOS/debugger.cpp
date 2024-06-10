@@ -774,9 +774,15 @@ void Debugger::ExtractCodeRanges(void *base_address,
                                  size_t max_address,
                                  std::list<AddressRange> *executable_ranges,
                                  size_t *code_size) {
+
+  if(!base_address) {
+    ExtractSegmentCodeRanges(min_address, max_address, executable_ranges, code_size);
+    return;
+  }
+
   mach_header_64 mach_header;
   GetMachHeader(base_address, &mach_header);
-
+  
   void *load_commands_buffer = NULL;
   GetLoadCommandsBuffer(base_address, &mach_header, &load_commands_buffer);
 
@@ -1431,6 +1437,7 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
       break;
 
     case EXC_BREAKPOINT:
+      WARN("Unhandled breakpoint\n");
       dbg_continue_status = KERN_FAILURE;
       break;
 

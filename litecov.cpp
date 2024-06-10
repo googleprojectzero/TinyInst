@@ -57,6 +57,10 @@ void LiteCov::Init(int argc, char **argv) {
 void LiteCov::OnModuleInstrumented(ModuleInfo *module) {
   TinyInst::OnModuleInstrumented(module);
 
+  if(!module->client_data) {
+    module->client_data = new ModuleCovData();
+  }
+  
   ModuleCovData *data = (ModuleCovData *)module->client_data;
 
   data->ClearInstrumentationData();

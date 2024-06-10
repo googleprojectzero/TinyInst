@@ -687,13 +687,6 @@ void Arm64Assembler::InstrumentCondJmp(
   const char *target_address1 = address + offset;
   const char *target_address2 = address + last_offset + branch_offset;
 
-  if (tinyinst_.GetModule((size_t)target_address2) != module) {
-    WARN("Relative jump to a differen module in bb at %p\n",
-         static_cast<const void *>(address));
-    tinyinst_.InvalidInstruction(module);
-    return;
-  }
-
   // preliminary encode cond branch instruction
   // offset will be changed later as we don't know
   // the size of edge instrumentation yet
@@ -720,6 +713,11 @@ void Arm64Assembler::InstrumentCondJmp(
   // fix conditional branch
   FixOffset(module, cond_branch_offset, label_offset);
 
+  if (tinyinst_.GetModule((size_t)target_address2) != module) {
+    tinyinst_.OutsideJump(module, (size_t)target_address2);
+    return;
+  }
+  
   // instrument the 2nd edge
   tinyinst_.InstrumentEdge(module, module, (size_t)address,
                            (size_t)target_address2);
@@ -749,8 +747,7 @@ void Arm64Assembler::InstrumentJmp(
     const char *target_address = address + last_offset + branch_offset;
 
     if (tinyinst_.GetModule((size_t)target_address) != module) {
-      WARN("Relative jump to a differen module in bb at %p\n", (void *)address);
-      tinyinst_.InvalidInstruction(module);
+      tinyinst_.OutsideJump(module, (size_t)target_address);
       return;
     }
 
@@ -799,13 +796,6 @@ void Arm64Assembler::InstrumentCall(
     const char *return_address = address + offset;
     const char *call_address = address + last_offset + branch_offset;
 
-    if (tinyinst_.GetModule((size_t)call_address) != module) {
-      WARN("Relative jump to a differen module in bb at %p\n",
-           static_cast<const void *>(address));
-      tinyinst_.InvalidInstruction(module);
-      return;
-    }
-
     if (!tinyinst_.patch_return_addresses) {
       uint64_t addr = (uint64_t)module->instrumented_code_allocated +
                       (uint64_t)module->instrumented_code_local;
@@ -827,6 +817,11 @@ void Arm64Assembler::InstrumentCall(
           (uint32_t)(module->instrumented_code_allocated - 4), queue,
           offset_fixes);
 
+      if (tinyinst_.GetModule((size_t)call_address) != module) {
+        tinyinst_.OutsideJump(module, (size_t)call_address);
+        return;
+      }
+      
       // jmp call_address
       tinyinst_.WriteCode(module, &branch_instr, sizeof(branch_instr));
 
@@ -838,6 +833,11 @@ void Arm64Assembler::InstrumentCall(
     } else {
       SetReturnAddress(module, (uint64_t)return_address);
 
+      if (tinyinst_.GetModule((size_t)call_address) != module) {
+        tinyinst_.OutsideJump(module, (size_t)call_address);
+        return;
+      }
+      
       uint32_t branch_instr = b(0, 0);
       // jmp call_address
       tinyinst_.WriteCode(module, &branch_instr, sizeof(branch_instr));

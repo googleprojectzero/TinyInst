@@ -48,6 +48,7 @@ ModuleInfo::ModuleInfo() {
   instrumented_code_remote_previous = NULL;
   instrumented_code_size = 0;
   unwind_data = NULL;
+  client_data = NULL;
 }
 
 void ModuleInfo::ClearInstrumentation() {
@@ -306,7 +307,7 @@ bool TinyInst::HandleBreakpoint(void *address) {
   auto iter = module->outside_jumps.find((size_t)address);
   if (iter != module->outside_jumps.end()) {
 
-    WARN("Executing relative jump outside the current module");
+    // WARN("Executing relative jump outside the current module");
     SetRegister(ARCH_PC, iter->second);
 
     return true;
@@ -869,6 +870,26 @@ void TinyInst::ClearInstrumentation(ModuleInfo *module) {
   OnModuleUninstrumented(module);
   ClearCrossModuleLinks(module);
 }
+
+void TinyInst::InstrumentAddressRange(const char *name,
+                                      size_t min_address,
+                                      size_t max_address)
+{
+  ModuleInfo *module = GetModuleByName(name);
+  if(!module) {
+    module = new ModuleInfo();
+    module->module_name = name;
+    module->module_header = NULL;
+    instrumented_modules.push_back(module);
+  }
+  
+  module->loaded = true;
+  module->min_address = min_address;
+  module->max_address = max_address;
+
+  InstrumentModule(module);
+}
+
 
 void TinyInst::InstrumentModule(ModuleInfo *module) {
   if (instrumentation_disabled) return;

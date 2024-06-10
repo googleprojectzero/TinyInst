@@ -161,6 +161,8 @@ protected:
   virtual void OnReturnAddress(ModuleInfo *module, size_t original_address, size_t translated_address);
   
   void RegisterHook(Hook *hook);
+  
+  void InstrumentAddressRange(const char *name, size_t min_address, size_t max_address);
 
 private:
   bool HandleBreakpoint(void *address);
