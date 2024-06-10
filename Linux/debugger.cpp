@@ -1480,9 +1480,11 @@ void Debugger::ExtractCodeRanges(void *module_base,
                                  size_t *code_size)
 {
   std::string elf_filename;
-  GetModuleFilename(module_base, &elf_filename);
-  if(elf_filename.empty()) FATAL("Error retrieving module path");
-  ResolveSymlinks(&elf_filename);
+  if(module_base) {
+    GetModuleFilename(module_base, &elf_filename);
+    if(elf_filename.empty()) FATAL("Error retrieving module path");
+    ResolveSymlinks(&elf_filename);
+  }
 
   *code_size = 0;
 
@@ -1491,9 +1493,22 @@ void Debugger::ExtractCodeRanges(void *module_base,
   maps_parser.Parse(main_pid, map_entries);
   if(map_entries.empty()) FATAL("Error parsing /proc/%d/maps", main_pid);
   for(auto iter = map_entries.begin(); iter != map_entries.end(); iter++) {
-    if(iter->name != elf_filename) continue;
+    if(module_base && (iter->name != elf_filename)) continue;
 
     if(!(iter->permissions & PROT_EXEC)) continue;
+
+    if(!module_base) {
+      if(iter->addr_to < min_address) continue;
+      if(iter->addr_from > max_address) continue;
+      if(iter->addr_to > max_address) {
+        WARN("Asked to instrument address range that partially overlaps an allocation");
+        iter->addr_to = max_address;
+      }
+      if(iter->addr_from < min_address) {
+        WARN("Asked to instrument address range that partially overlaps an allocation");
+        iter->addr_from = min_address;
+      }
+    }
 
     int ret = RemoteMprotect((void *)iter->addr_from, 
                              (iter->addr_to - iter->addr_from), 
