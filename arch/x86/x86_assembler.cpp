@@ -619,7 +619,11 @@ void X86Assembler::FixInstructionAndOutput(
   // as it needs not be the original size
   fixed_disp = (int64_t)(mem_address) - (int64_t)(instruction_end_addr);
 
-  if (llabs(fixed_disp) > 0x7FFFFFFF) FATAL("Offset larger than 2G");
+  if (llabs(fixed_disp) > 0x7FFFFFFF) {
+    WARN("Offset larger than 2G");
+    tinyinst_.InvalidInstruction(module);
+    return;
+  }
 
   xed_encoder_request_set_memory_displacement(&inst.xedd, fixed_disp, 4);
   xed_error = xed_encode(&inst.xedd, tmp, sizeof(tmp), &olen);
