@@ -1975,10 +1975,10 @@ void Debugger::Init(int argc, char **argv) {
   
 #ifdef ARM64
   target_end_detection = RETADDR_BREAKPOINT;
-  private_dlyd_cache = true;
+  private_dyld_cache = true;
 #else
   target_end_detection = RETADDR_STACK_OVERWRITE;
-  private_dlyd_cache = false;
+  private_dyld_cache = false;
 #endif
 
   dbg_last_status = DEBUGGER_NONE;
@@ -2033,8 +2033,8 @@ void Debugger::Init(int argc, char **argv) {
       target_end_detection = RETADDR_BREAKPOINT;
     }
   }
-  private_dlyd_cache = GetBinaryOption("-private_dlyd_cache", argc, argv, private_dlyd_cache);
-  if (private_dlyd_cache) {
+  private_dyld_cache = GetBinaryOption("-private_dyld_cache", argc, argv, private_dyld_cache);
+  if (private_dyld_cache) {
     additional_env.push_back("DYLD_SHARED_REGION=private");
   }
 

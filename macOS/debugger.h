@@ -227,7 +227,7 @@ protected:
   bool attach_mode;
   bool loop_mode;
   bool disable_aslr;
-  bool private_dlyd_cache;
+  bool private_dyld_cache;
 
   std::list<std::string> additional_env;
   
