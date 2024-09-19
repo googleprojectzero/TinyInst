@@ -35,6 +35,10 @@ limitations under the License.
 #include <signal.h>
 #include <fcntl.h>
 
+#ifdef __arm64e__
+#include <ptrauth.h>
+#endif
+
 #include "macOS/debugger.h"
 #include "common.h"
 
@@ -217,15 +221,16 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
     case X28:
     case X29:
       return &state->__x[r];
+#ifndef __arm64e__
     case PC:
       return &state->__pc;
-    case CPSR:
-      return (uint64_t*)&state->__cpsr;
     case LR:
       return &state->__lr;
     case SP:
       return &state->__sp;
-
+#endif
+    case CPSR:
+      return (uint64_t*)&state->__cpsr;
     default:
       FATAL("Unimplemented register");
     }
@@ -273,6 +278,20 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
 }
 
 size_t Debugger::GetRegister(Register r) {
+#ifdef __arm64e__
+  ARCH_THREAD_STATE_T *state = (ARCH_THREAD_STATE_T*)(mach_exception->new_state);
+  switch(r) {
+    case PC:
+      return (size_t)ptrauth_strip(state->__opaque_pc, ptrauth_key_function_pointer);
+    case LR:
+      return (size_t)ptrauth_strip(state->__opaque_lr, ptrauth_key_function_pointer);
+    case SP:
+      return (size_t)ptrauth_strip((void *)state->__opaque_sp, ptrauth_key_process_independent_data);
+    default:
+      break;
+  }
+#endif
+
 #ifdef ARM64
   if (r == CPSR) {
     uint32_t *reg_pointer = (uint32_t *)GetPointerToRegister(r);
@@ -284,13 +303,36 @@ size_t Debugger::GetRegister(Register r) {
 }
 
 void Debugger::SetRegister(Register r, size_t value) {
+#ifdef __arm64e__
+  ARCH_THREAD_STATE_T *state = (ARCH_THREAD_STATE_T*)(mach_exception->new_state);
+  switch(r) {
+    case PC:
+      value = (size_t)ptrauth_strip((void *)value, ptrauth_key_function_pointer);
+      value = (size_t)ptrauth_sign_unauthenticated((void*)value, ptrauth_key_function_pointer, 0);
+      arm_thread_state64_set_pc_fptr(*state, (void *)value);
+      return;
+    case LR:
+      value = (size_t)ptrauth_strip((void *)value, ptrauth_key_function_pointer);
+      value = (size_t)ptrauth_sign_unauthenticated((void*)value, ptrauth_key_function_pointer, 0);
+      arm_thread_state64_set_lr_fptr(*state, (void *)value);
+      return;
+    case SP:
+      arm_thread_state64_set_sp(*state, (void *)value);
+      return;
+  default:
+    break;
+  }
+#endif
+
 #ifdef ARM64
   if (r == CPSR) {
     if(value & 0xFFFFFFFF00000000) FATAL("32 bit value required");
     uint32_t *reg_pointer = (uint32_t *)GetPointerToRegister(r);
     *reg_pointer = (uint32_t)(value & 0xFFFFFFFF);
+    return;
   }
 #endif
+
   uint64_t *reg_pointer = GetPointerToRegister(r);
   *reg_pointer = value;
 }
@@ -1095,10 +1137,17 @@ void *Debugger::GetModuleEntrypoint(void *base_address) {
   uint64_t file_vm_slide = (uint64_t)base_address - text_cmd->vmaddr;
 
   free(load_commands_buffer);
+
+#ifdef __arm64e__
+  return (void*)((uint64_t)state->__opaque_pc + file_vm_slide);
+#else
+
 #ifdef ARM64
   return (void*)(state->__pc + file_vm_slide);
 #else
   return (void*)(state->__rip + file_vm_slide);
+#endif
+
 #endif
 }
 
@@ -1548,7 +1597,9 @@ void Debugger::PrintContext() {
     if(ret != KERN_SUCCESS) continue;
 #ifdef ARM64
     printf("thread %d\n", i);
+#ifndef __arm64e__
     printf("pc: %llx\n", state.__pc);
+#endif
     printf(" x0: %16llx  x1: %16llx  x2: %16llx  x3: %16llx\n", state.__x[0], state.__x[1], state.__x[2], state.__x[3]);
     printf(" x4: %16llx  x5: %16llx  x6: %16llx  x7: %16llx\n", state.__x[4], state.__x[5], state.__x[6], state.__x[7]);
     printf(" x8: %16llx  x9: %16llx x10: %16llx x11: %16llx\n", state.__x[8], state.__x[9], state.__x[10], state.__x[11]);
@@ -1557,10 +1608,18 @@ void Debugger::PrintContext() {
     printf("x20: %16llx x21: %16llx x22: %16llx x23: %16llx\n", state.__x[20], state.__x[21], state.__x[22], state.__x[23]);
     printf("x24: %16llx x25: %16llx x26: %16llx x27: %16llx\n", state.__x[24], state.__x[25], state.__x[26], state.__x[27]);
     printf("x28: %16llx\n", state.__x[28]);
+#ifndef __arm64e__
     printf(" sp: %16llx  fp: %16llx  lr: %16llx cpsr: %8x\n\n", state.__sp, state.__fp, state.__lr, state.__cpsr);
+#endif
     printf("stack:\n");
     uint64_t stack[100];
-    mach_target->ReadMemory(state.__sp, sizeof(stack), stack);
+    uint64_t sp;
+#ifdef __arm64e__
+    sp = (uint64_t)ptrauth_strip(state.__opaque_sp, ptrauth_key_process_independent_data);
+#else
+    sp = state.__sp;
+#endif
+    mach_target->ReadMemory(sp, sizeof(stack), stack);
 #else
     printf("thread %d\n", i);
     printf("rip:%llx\n", state.__rip);
