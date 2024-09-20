@@ -53,7 +53,9 @@ According to early measurements on image decoding, on a well-behaving 64-bit tar
 
 2. Navigate to the directory containing the source
 
-3. Run the following commands (change the generator according to the version of IDE and platform you want to build for):
+3. Initialize submodules (run `git submodule update --init --recursive`)
+
+4. Run the following commands (change the generator according to the version of IDE and platform you want to build for):
 
 #### Windows
 ```
