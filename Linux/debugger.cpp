@@ -470,18 +470,39 @@ static unsigned char syscall_buf32[] = {
 
 #endif
 
+pid_t waitpid_debug(pid_t pid, int *stat_loc, int options, const char *callsite = "") {
+  pid_t ret = waitpid(pid, stat_loc, options);
+  // printf("Waitpid %s returned pid %d status %x\n", callsite, ret, *stat_loc);
+  return ret;
+}
+
 void Debugger::RemoteSyscall() {
+  // disable watchdog when doing remore syscalls
+  // we still might get stopped by the watchdog
+  // but at least it won't happen repeatedly
+  bool saved_watchdog_state = watchdog_enabled;
+  watchdog_enabled = false;
+
   SetRegister(ARCH_PC, syscall_address);
 
   uint64_t rsp = GetRegister(ARCH_SP);
 
   ptrace_check(PTRACE_SINGLESTEP, current_pid, nullptr, nullptr);
 
-  int status = 0;
-  int wait_ret = waitpid(current_pid, &status, __WALL);
-  if(wait_ret != current_pid) {
-    FATAL("Unexpected wait result after syscall");
+  while(true) {
+    int status = 0;
+    int wait_ret = waitpid_debug(current_pid, &status, __WALL, "remote syscall");
+    if(WIFSTOPPED(status) && (WSTOPSIG(status) == SIGSTOP)) {
+      // possible race with watchdog but we don't want to break in the middle of syscall
+      ptrace(ptrace_continue_request, current_pid, 0, 0);
+      continue;
+    }
+    if(wait_ret != current_pid) {
+      FATAL("Unexpected wait result after syscall");
+    }
+    break;
   }
+
   // printf("syscall status: %x\n", status);
 
   // uint64_t rip = GetRegister(RIP);
@@ -489,6 +510,7 @@ void Debugger::RemoteSyscall() {
 
   if(rsp != GetRegister(ARCH_SP)) FATAL("rsp mismatch %lx %lx", rsp, GetRegister(ARCH_SP));
   // printf("Syscall status: %x\n", status);
+  watchdog_enabled = saved_watchdog_state;
 }
 
 void Debugger::SetSyscallArguments(uint64_t *args, size_t num_args) {
@@ -1819,7 +1841,7 @@ DebuggerStatus Debugger::HandleStopped(int status) {
       if (trace_debug_events) printf("Debugger: New thread, pid: %d\n", new_thread_pid);
       if(threads.find(new_thread_pid) == threads.end()) {
         int new_thread_status = 0;
-        pid_t ret_pid = waitpid(new_thread_pid, &new_thread_status, __WALL);
+        pid_t ret_pid = waitpid_debug(new_thread_pid, &new_thread_status, __WALL, "thread");
         if(ret_pid != new_thread_pid) FATAL("Unexpected waitpid result waiting for new thread\n");
         if(!WIFSTOPPED(new_thread_status)) FATAL("Unexpected status from a new thread");
         SetThreadOptions(new_thread_pid);
@@ -1932,7 +1954,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
     int status;
     // printf("waiting...\n");
     if(timeout != 0xFFFFFFFF) watchdog_enabled = true;
-    current_pid = waitpid(-1, &status, __WNOTHREAD);
+    current_pid = waitpid_debug(-1, &status, __WNOTHREAD, "debugloop");
 
     // printf("done, %d %d\n", current_pid, main_pid);
     //printf("RIP: %lx\n", GetRegister(RIP));
@@ -1944,7 +1966,7 @@ DebuggerStatus Debugger::DebugLoop(uint32_t timeout) {
 
     watchdog_mutex.lock();
     watchdog_enabled = false;
-    if(killed_by_watchdog) {
+    if(killed_by_watchdog && WIFSTOPPED(status) && (WSTOPSIG(status) == SIGSTOP)) {
       watchdog_mutex.unlock();
       return DEBUGGER_HANGED;
     }
@@ -2021,7 +2043,7 @@ DebuggerStatus Debugger::Run(int argc, char **argv, uint32_t timeout) {
   }
 
   int status;
-  pid_t ret = waitpid(child_pid, &status, 0);
+  pid_t ret = waitpid_debug(child_pid, &status, 0, "run");
   if ((ret != child_pid) || !WIFSTOPPED(status) || (WSTOPSIG(status) != SIGTRAP)) {
     FATAL("Child process didn't start correctly");
   }
@@ -2100,7 +2122,7 @@ DebuggerStatus Debugger::Attach(unsigned int pid, uint32_t timeout) {
   for(auto iter = threads.begin(); iter != threads.end(); ++iter) {
     // printf("waiting for %d\n", *iter);
     int new_thread_status = 0;
-    pid_t ret_pid = waitpid(*iter, &new_thread_status, __WALL);
+    pid_t ret_pid = waitpid_debug(*iter, &new_thread_status, __WALL, "attach");
     if(ret_pid != *iter) FATAL("Unexpected waitpid result waiting for new thread\n");
     // printf("status: %x\n", new_thread_status);
     if(!WIFSTOPPED(new_thread_status)) FATAL("Unexpected status from a new thread");
