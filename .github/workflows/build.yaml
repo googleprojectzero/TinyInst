@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2019, macos-11.0, macos-12]
+        os: [windows-2019, macos-latest]
 
     steps:
       - uses: actions/checkout@v2
