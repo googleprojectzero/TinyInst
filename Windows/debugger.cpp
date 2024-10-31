@@ -553,7 +553,8 @@ void Debugger::ExtractCodeRanges(void *module_base,
                                  size_t min_address,
                                  size_t max_address,
                                  std::list<AddressRange> *executable_ranges,
-                                 size_t *code_size)
+                                 size_t *code_size,
+                                 bool do_protect)
 {
   LPCVOID end_address = (void *)max_address;
   LPCVOID cur_address = (void *)min_address;
@@ -593,17 +594,19 @@ void Debugger::ExtractCodeRanges(void *module_base,
         FATAL("Error in ReadProcessMemory");
       }
 
-      uint8_t low = meminfobuf.Protect & 0xFF;
-      low = low >> 4;
-      DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
-      DWORD oldProtect;
-      if (!VirtualProtectEx(child_handle,
-        meminfobuf.BaseAddress,
-        meminfobuf.RegionSize,
-        newProtect,
-        &oldProtect))
-      {
-        FATAL("Error in VirtualProtectEx");
+      if(do_protect) {
+        uint8_t low = meminfobuf.Protect & 0xFF;
+        low = low >> 4;
+        DWORD newProtect = (meminfobuf.Protect & 0xFFFFFF00) + low;
+        DWORD oldProtect;
+        if (!VirtualProtectEx(child_handle,
+                              meminfobuf.BaseAddress,
+                              meminfobuf.RegionSize,
+                              newProtect,
+                              &oldProtect))
+        {
+          FATAL("Error in VirtualProtectEx");
+        }
       }
 
       newRange.from = (size_t)meminfobuf.BaseAddress;

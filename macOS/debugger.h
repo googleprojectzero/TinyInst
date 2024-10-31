@@ -156,6 +156,9 @@ public:
   DebuggerStatus Kill();
   DebuggerStatus Continue(uint32_t timeout);
   DebuggerStatus Attach(unsigned int pid, uint32_t timeout);
+  DebuggerStatus GetDebuggerStatus() {
+    return dbg_last_status;
+  }
 
   bool IsTargetAlive();
   bool IsTargetFunctionDefined() { return target_function_defined; }
@@ -254,7 +257,8 @@ protected:
                          size_t min_address,
                          size_t max_address,
                          std::list<AddressRange> *executable_ranges,
-                         size_t *code_size);
+                         size_t *code_size,
+                         bool do_protect = true);
 
   void ProtectCodeRanges(std::list<AddressRange> *executable_ranges);
 
@@ -398,7 +402,7 @@ private:
   void ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                 mach_vm_address_t segment_end_addr,
                                 std::list<AddressRange> *executable_ranges,
-                                size_t *code_size);
+                                size_t *code_size, bool do_protect = true);
 
   void HandleDyld(void *module);
 

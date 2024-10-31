@@ -1499,7 +1499,8 @@ void Debugger::ExtractCodeRanges(void *module_base,
                                  size_t min_address,
                                  size_t max_address,
                                  std::list<AddressRange> *executable_ranges,
-                                 size_t *code_size)
+                                 size_t *code_size,
+                                 bool do_protect)
 {
   std::string elf_filename;
   if(module_base) {
@@ -1531,12 +1532,14 @@ void Debugger::ExtractCodeRanges(void *module_base,
         iter->addr_from = min_address;
       }
     }
-
-    int ret = RemoteMprotect((void *)iter->addr_from, 
-                             (iter->addr_to - iter->addr_from), 
-                             iter->permissions ^ PROT_EXEC);
-    if(ret) {
-      FATAL("Could not apply memory protection");
+    
+    if(do_protect) {
+      int ret = RemoteMprotect((void *)iter->addr_from,
+                               (iter->addr_to - iter->addr_from),
+                               iter->permissions ^ PROT_EXEC);
+      if(ret) {
+        FATAL("Could not apply memory protection");
+      }
     }
 
     AddressRange range;

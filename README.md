@@ -184,6 +184,8 @@ In addition to the general-purpose API documented above, TinyInst also implement
 
 `-instrument_module [module name]` specifies which module to instrument, multiple `-instrument_module` options can be specified to instrument multiple modules.
 
+`-instrument_transitive [module name]` similar to `-instrument_module` except only code entered from other instrumented modules will run instrumented. Primarily used as optimization for calls like module1->module2->module1 where it's not important to instrument the entire module2 module, but module2->module1 entries are causing slowdowns.
+
 `-indirect_instrumentation [none|local|global|auto]` which instrumentation to use for indirect jump/calls
 
 `-patch_return_addresses` - replaces return address with the original value, causes returns to be instrumented using whatever `-indirect_instrumentation` method is specified
