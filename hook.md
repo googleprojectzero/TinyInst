@@ -23,7 +23,7 @@ It is expected that most hooking operations can be performed just using the brea
 
 If a hook needs to add additional assembly code, this can be done by implementing `WriteCodeBefore`/`WriteCodeAfter` methods of the hook class. Assembly code can be inserted by calling the `WriteCode` function with the buffer containing the assembly to be inserted. Note that both `WriteCodeBefore`/`WriteCodeAfter` get called during instrumentation time (before the function gets run) and, due to how `HookBeginEnd` is implemented, `WriteCodeAfter` can be called multiple times for a single hooked function.
 
-Once the hook classes have been implemented for each function the user wants to hook, the user can register them by calling `RegisterHook` method inside their clien's constructor.
+Once the hook classes have been implemented for each function the user wants to hook, the user can register them by calling `RegisterHook` method inside their client's constructor.
 
 ### Example
 

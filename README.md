@@ -186,6 +186,8 @@ In addition to the general-purpose API documented above, TinyInst also implement
 
 `-indirect_instrumentation [none|local|global|auto]` which instrumentation to use for indirect jump/calls
 
+`-ignore_duplicates_module [module name]` Ensures only the first loaded instance of `[module name]` is instrumented, ignoring subsequent duplicates. Useful when instrumenting system libraries (e.g., `CoreAudio`) on macOS Sequoia and later, where multiple distinct libraries with the same name may be loaded.
+
 `-patch_return_addresses` - replaces return address with the original value, causes returns to be instrumented using whatever `-indirect_instrumentation` method is specified
 
 `-generate_unwind` - Generates stack unwinding data for instrumented code (for faster C++ exception handling). Note that it might not work correctly on some older Windows versions.

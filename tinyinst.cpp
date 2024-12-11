@@ -43,6 +43,7 @@ ModuleInfo::ModuleInfo() {
   max_address = 0;
   loaded = false;
   instrumented = false;
+  ignore_duplicates = false;
   instrumented_code_local = NULL;
   instrumented_code_remote = NULL;
   instrumented_code_remote_previous = NULL;
@@ -849,6 +850,8 @@ void TinyInst::OnModuleInstrumented(ModuleInfo* module) {
       }
       if(address) {
         resolved_hooks[address] = hook;
+      } else {
+        FATAL("Could not resolve function %s in module %s", hook->GetFunctionName().c_str(), hook->GetModuleName().c_str());
       }
     }
   }
@@ -1071,9 +1074,14 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
       target_module->module_header &&
       (target_module->module_header != (void *)module))
   {
-    WARN("Instrumented module loaded on a different address than seen previously\n"
-         "Module will need to be re-instrumented. Expect a drop in performance.");
-    ClearInstrumentation(target_module);
+    if (target_module->ignore_duplicates) {
+      WARN("Skipping duplicate module %s.", target_module->module_name.c_str());
+      return;
+    } else {
+      WARN("Instrumented module loaded on a different address than seen previously\n"
+        "Module will need to be re-instrumented. Expect a drop in performance.");
+      ClearInstrumentation(target_module);
+    }
   }
 
   target_module->module_header = (void *)module;
@@ -1091,7 +1099,7 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
   }
 }
 
-// called when a potentialy interesting module gets loaded
+// called when a potentially interesting module gets loaded
 void TinyInst::OnModuleLoaded(void *module, char *module_name) {
   Debugger::OnModuleLoaded(module, module_name);
 
@@ -1261,6 +1269,9 @@ void TinyInst::Init(int argc, char **argv) {
   std::list <char *> module_names;
   GetOptionAll("-instrument_module", argc, argv, &module_names);
 
+  std::list <char *> ignored_duplicate_modules;
+  GetOptionAll("-ignore_duplicates_module", argc, argv, &ignored_duplicate_modules);
+
 #if defined(__APPLE__) && defined(ARM64)
   std::set <std::string> orig_uniq_mod_names;
   std::set <std::string> new_uniq_mod_names;
@@ -1300,6 +1311,11 @@ void TinyInst::Init(int argc, char **argv) {
   for (const auto module_name: module_names) {
     ModuleInfo *new_module = new ModuleInfo();
     new_module->module_name = module_name;
+    for (const auto& ignored_module : ignored_duplicate_modules) {
+      if (strcmp(ignored_module, module_name) == 0) {
+        new_module->ignore_duplicates = true;
+      }
+    }
     instrumented_modules.push_back(new_module);
     // SAY("--- %s\n", module_name);
   }
