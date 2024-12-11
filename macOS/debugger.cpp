@@ -815,8 +815,9 @@ void Debugger::ExtractCodeRanges(void *base_address,
                                  size_t min_address,
                                  size_t max_address,
                                  std::list<AddressRange> *executable_ranges,
-                                 size_t *code_size) {
-
+                                 size_t *code_size,
+                                 bool do_protect)
+{
   if(!base_address) {
     ExtractSegmentCodeRanges(min_address, max_address, executable_ranges, code_size);
     return;
@@ -876,7 +877,7 @@ void Debugger::ExtractCodeRanges(void *base_address,
       mach_vm_address_t segment_start_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide;
       mach_vm_address_t segment_end_addr = (mach_vm_address_t)segment_cmd->vmaddr + file_vm_slide + segment_cmd->vmsize;
 
-      ExtractSegmentCodeRanges(segment_start_addr, segment_end_addr, executable_ranges, code_size);
+      ExtractSegmentCodeRanges(segment_start_addr, segment_end_addr, executable_ranges, code_size, do_protect);
 #endif
     }
 
@@ -889,7 +890,9 @@ void Debugger::ExtractCodeRanges(void *base_address,
 void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
                                         mach_vm_address_t segment_end_addr,
                                         std::list<AddressRange> *executable_ranges,
-                                        size_t *code_size) {
+                                        size_t *code_size,
+                                        bool do_protect)
+{
   mach_vm_address_t cur_address = segment_start_addr;
   while (cur_address < segment_end_addr) {
     mach_vm_size_t region_size = 0;
@@ -916,38 +919,42 @@ void Debugger::ExtractSegmentCodeRanges(mach_vm_address_t segment_start_addr,
       new_range.data = (char *)malloc(range_size);
       RemoteRead((void*)new_range.from, new_range.data, range_size);
 
-    retry_label:
-      RemoteProtect((void*)new_range.from, range_size, info.protection ^ VM_PROT_EXECUTE);
-      mach_vm_address_t region_addr = new_range.from;
-      mach_vm_size_t region_sz = range_size;
-      vm_region_submap_info_data_64_t region_info;
-      mach_target->GetRegionSubmapInfo(&region_addr, (mach_vm_size_t*)&region_sz, &region_info);
-      if (region_info.protection & VM_PROT_EXECUTE) {
-        if (retried) {
-          FATAL("Failed to mark the original code NON-EXECUTABLE\n");
-        }
-
-        kern_return_t krt;
-        krt = mach_vm_deallocate(mach_target->Task(),
-                                 (mach_vm_address_t)new_range.from,
-                                 range_size);
-
-        if (krt == KERN_SUCCESS) {
-          mach_vm_address_t alloc_address = new_range.from;
-          krt = mach_vm_allocate(mach_target->Task(),
-                                 (mach_vm_address_t*)&alloc_address,
-                                 range_size,
-                                 VM_FLAGS_FIXED);
-
-          if (krt == KERN_SUCCESS && alloc_address && new_range.from) {
-            RemoteWrite((void*)new_range.from, new_range.data, range_size);
-          } else {
-            FATAL("Unable to re-allocate memory after deallocate in ExtractSegmentCodeRanges\n");
+      if(do_protect) {
+      retry_label:
+        RemoteProtect((void*)new_range.from, range_size, info.protection ^ VM_PROT_EXECUTE);
+        mach_vm_address_t region_addr = new_range.from;
+        mach_vm_size_t region_sz = range_size;
+        vm_region_submap_info_data_64_t region_info;
+        mach_target->GetRegionSubmapInfo(&region_addr, (mach_vm_size_t*)&region_sz, &region_info);
+        if (region_info.protection & VM_PROT_EXECUTE) {
+          if (retried) {
+            FATAL("Failed to mark the original code NON-EXECUTABLE\n");
           }
+          
+          kern_return_t krt;
+          krt = mach_vm_deallocate(mach_target->Task(),
+                                   (mach_vm_address_t)new_range.from,
+                                   range_size);
+          
+          if (krt == KERN_SUCCESS) {
+            mach_vm_address_t alloc_address = new_range.from;
+            krt = mach_vm_allocate(mach_target->Task(),
+                                   (mach_vm_address_t*)&alloc_address,
+                                   range_size,
+                                   VM_FLAGS_FIXED);
+            
+            if (krt == KERN_SUCCESS && alloc_address && new_range.from) {
+              RemoteWrite((void*)new_range.from, new_range.data, range_size);
+            } else {
+              FATAL("Unable to re-allocate memory after deallocate in ExtractSegmentCodeRanges\n");
+            }
+          }
+          
+          retried = true;
+          goto retry_label;
         }
-
-        retried = true;
-        goto retry_label;
+      } else {
+        //WARN("skipping memory protection");
       }
 
       AddressRange *last_range = NULL;

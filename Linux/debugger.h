@@ -162,7 +162,8 @@ protected:
                          size_t min_address,
                          size_t max_address,
                          std::list<AddressRange> *executable_ranges,
-                         size_t *code_size);
+                         size_t *code_size,
+                         bool do_protect = true);
 
   void ProtectCodeRanges(std::list<AddressRange> *executable_ranges);
 

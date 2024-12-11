@@ -166,7 +166,7 @@ uint32_t br(Register dst_reg) {
 }
 
 uint32_t b_cond(const std::string &cond, int32_t off) {
-  static const std::vector<const std::string> condition_codes = {
+  static const std::vector<std::string> condition_codes = {
       "eq", "ne", "cs", "cc", "mi", "pl", "vs", "vc",
       "hi", "ls", "ge", "lt", "gt", "le", "al", "al"
   };

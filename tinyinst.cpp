@@ -50,6 +50,7 @@ ModuleInfo::ModuleInfo() {
   instrumented_code_size = 0;
   unwind_data = NULL;
   client_data = NULL;
+  do_protect = true;
 }
 
 void ModuleInfo::ClearInstrumentation() {
@@ -903,16 +904,19 @@ void TinyInst::InstrumentModule(ModuleInfo *module) {
     printf("Module %s already instrumented, "
            "reusing instrumentation data\n",
            module->module_name.c_str());
-    ProtectCodeRanges(&module->executable_ranges);
+    if (module->do_protect) {
+      ProtectCodeRanges(&module->executable_ranges);
+    }
     FixCrossModuleLinks(module);
     return;
   }
-
+  
   ExtractCodeRanges(module->module_header,
                     module->min_address,
                     module->max_address,
                     &module->executable_ranges,
-                    &module->code_size);
+                    &module->code_size,
+                    module->do_protect);
 
   // allocate buffer for instrumented code
   module->instrumented_code_size = module->code_size * CODE_SIZE_MULTIPLIER;
@@ -1221,6 +1225,18 @@ InstructionResult TinyInst::InstrumentInstruction(ModuleInfo *module,
   return INST_NOTHANDLED;
 }
 
+void TinyInst::AddInstrumentedModule(char* name, bool do_protect) {
+  std::string module_name = name;
+  for(auto iter=instrumented_modules.begin(); iter!=instrumented_modules.end(); iter++) {
+    if((*iter)->module_name == module_name) {
+      FATAL("Duplicate instrumented modules, module %s is already being instrumented", name);
+    }
+  }
+  ModuleInfo *new_module = new ModuleInfo();
+  new_module->module_name = module_name;
+  new_module->do_protect = do_protect;
+  instrumented_modules.push_back(new_module);
+}
 
 // initializes instrumentation from command line options
 void TinyInst::Init(int argc, char **argv) {
@@ -1316,7 +1332,15 @@ void TinyInst::Init(int argc, char **argv) {
         new_module->ignore_duplicates = true;
       }
     }
-    instrumented_modules.push_back(new_module);
+    AddInstrumentedModule(module_name, true);
+    // SAY("--- %s\n", module_name);
+  }
+  
+  std::list <char *> module_names_transitive;
+  GetOptionAll("-instrument_transitive", argc, argv, &module_names_transitive);
+
+  for (const auto module_name: module_names_transitive) {
+    AddInstrumentedModule(module_name, false);
     // SAY("--- %s\n", module_name);
   }
 
