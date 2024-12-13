@@ -293,7 +293,6 @@ class ModuleInfo {
   size_t code_size;
   bool loaded;
   bool instrumented;
-  bool ignore_duplicates;
   std::list<AddressRange> executable_ranges;
 
   size_t instrumented_code_size;
