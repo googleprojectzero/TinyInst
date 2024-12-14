@@ -1315,8 +1315,6 @@ void TinyInst::Init(int argc, char **argv) {
 #endif
 
   for (const auto module_name: module_names) {
-    ModuleInfo *new_module = new ModuleInfo();
-    new_module->module_name = module_name;
     AddInstrumentedModule(module_name, true);
     // SAY("--- %s\n", module_name);
   }
