@@ -846,11 +846,11 @@ void TinyInst::OnModuleInstrumented(ModuleInfo* module) {
       } else if(hook->GetFunctionOffset()) {
         address = (size_t)(module->module_header) + hook->GetFunctionOffset();
       } else {
-        FATAL("Hook specifies neithr function name nor offset");
+        FATAL("Hook specifies neither function name nor offset");
       }
       if(address) {
         resolved_hooks[address] = hook;
-      } else {
+      } else if (hook->GetModuleName() != std::string("*")) {
         WARN("Could not resolve function %s in module %s", hook->GetFunctionName().c_str(), hook->GetModuleName().c_str());
       }
     }
