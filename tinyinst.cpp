@@ -846,10 +846,12 @@ void TinyInst::OnModuleInstrumented(ModuleInfo* module) {
       } else if(hook->GetFunctionOffset()) {
         address = (size_t)(module->module_header) + hook->GetFunctionOffset();
       } else {
-        FATAL("Hook specifies neithr function name nor offset");
+        FATAL("Hook specifies neither function name nor offset");
       }
       if(address) {
         resolved_hooks[address] = hook;
+      } else if (hook->GetModuleName() != std::string("*")) {
+        WARN("Could not resolve function %s in module %s", hook->GetFunctionName().c_str(), hook->GetModuleName().c_str());
       }
     }
   }
@@ -1075,9 +1077,8 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
       target_module->module_header &&
       (target_module->module_header != (void *)module))
   {
-    WARN("Instrumented module loaded on a different address than seen previously\n"
-         "Module will need to be re-instrumented. Expect a drop in performance.");
-    ClearInstrumentation(target_module);
+    WARN("Skipping re-instrumentation of duplicate module %s.", target_module->module_name.c_str());
+    return;
   }
 
   target_module->module_header = (void *)module;
@@ -1095,7 +1096,7 @@ void TinyInst::OnInstrumentModuleLoaded(void *module, ModuleInfo *target_module)
   }
 }
 
-// called when a potentialy interesting module gets loaded
+// called when a potentially interesting module gets loaded
 void TinyInst::OnModuleLoaded(void *module, char *module_name) {
   Debugger::OnModuleLoaded(module, module_name);
 
