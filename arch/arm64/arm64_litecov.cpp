@@ -90,6 +90,10 @@ InstructionResult LiteCov::InstrumentInstruction(ModuleInfo *module,
                                                  Instruction &inst,
                                                  size_t bb_address,
                                                  size_t instruction_address) {
+  
+  InstructionResult tinyinst_ret = TinyInst::InstrumentInstruction(module, inst, bb_address, instruction_address);
+  if(tinyinst_ret != INST_NOTHANDLED) return tinyinst_ret;
+
   if (!compare_coverage) {
     return INST_NOTHANDLED;
   }
