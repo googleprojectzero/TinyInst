@@ -496,10 +496,14 @@ void TinyInst::InvalidInstruction(ModuleInfo *module) {
 }
 
 void TinyInst::OutsideJump(ModuleInfo* module, size_t address) {
+#ifdef ARM64
   size_t breakpoint_address = (size_t)module->instrumented_code_remote +
     module->instrumented_code_allocated;
   assembler_->Breakpoint(module);
   module->outside_jumps[breakpoint_address] = address;
+#else
+  assembler_->JmpAddress(module, address);
+#endif
 }
 
 void TinyInst::InstrumentIndirect(ModuleInfo *module,
