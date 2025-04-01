@@ -47,6 +47,7 @@ limitations under the License.
 #define BREAKPOINT_TARGET 0x02
 #define BREAKPOINT_NOTIFICATION 0x04
 #define BREAKPOINT_TARGET_END 0x08
+#define BREAKPOINT_LLDB_NOTIFICATION 0x10
 
 #define PERSIST_END_EXCEPTION 0x0F22
 
@@ -409,7 +410,7 @@ size_t Debugger::GetReturnAddress() {
 #ifdef ARM64 
   return GetRegister(LR);
 #else
-  void *ra;
+  void *ra = NULL;
   RemoteRead((void*)GetRegister(RSP), &ra, child_ptr_size);
   return (size_t)ra;
 #endif
@@ -713,7 +714,10 @@ void Debugger::AddBreakpoint(void *address, int type) {
   for (auto it = breakpoints.rbegin(); it != breakpoints.rend(); ++it) {
     if ((*it)->address == address) {
       (*it)->type |= type;
-      if (((*it)->type & BREAKPOINT_NOTIFICATION) && ((*it)->type & BREAKPOINT_TARGET)) {
+      if ((((*it)->type & BREAKPOINT_NOTIFICATION) ||
+          ((*it)->type & BREAKPOINT_LLDB_NOTIFICATION))
+          && ((*it)->type & BREAKPOINT_TARGET))
+      {
         FATAL("Target method must not be the same as _dyld_debugger_notification");
       }
 
@@ -1278,26 +1282,20 @@ void Debugger::OnModuleLoaded(void *module, char *module_name) {
 void Debugger::HandleDyld(void *module) {
   dyld_address = module;
 
-  m_dyld_debugger_notification = GetSymbolAddress(module, (char*)"__dyld_debugger_notification");
-  AddBreakpoint(m_dyld_debugger_notification, BREAKPOINT_NOTIFICATION);
-
-#ifdef ARM64
-  // For arm we just mov pc, lr on BREAKPOINT_NOTIFICATION
-#else
-  // This save us the recurring TRAP FLAG breakpoint on BREAKPOINT_NOTIFICATION.
-  unsigned char ret = 0xC3;
-  RemoteWrite((void*)((uint64_t)m_dyld_debugger_notification+1), (void*)&ret, 1);
-#endif
+  void *dyld_debugger_notification = GetSymbolAddress(module, (char*)"__dyld_debugger_notification");
+  if(dyld_debugger_notification) {
+    AddBreakpoint(dyld_debugger_notification, BREAKPOINT_NOTIFICATION);
+  } else {
+    dyld_debugger_notification = GetSymbolAddress(module, (char*)"_lldb_image_notifier");
+    if(!dyld_debugger_notification) FATAL("Couldn't find __dyld_debugger_notification or _lldb_image_notifier");
+    AddBreakpoint(dyld_debugger_notification, BREAKPOINT_LLDB_NOTIFICATION);
+  }
 }
 
-void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_t machHeaders[]) {
-  uint64_t *image_info_array = new uint64_t[infoCount];
-  size_t image_info_array_size = sizeof(uint64_t) * infoCount;
-  RemoteRead(machHeaders, (void*)image_info_array, image_info_array_size);
-
+void Debugger::OnImageNotifier(size_t mode, unsigned long infoCount, uint64_t* headers) {
   if (mode == 1) { /* dyld_image_removing */
     for (unsigned long i = 0; i < infoCount; ++i) {
-      OnModuleUnloaded((void*)image_info_array[i]);
+      OnModuleUnloaded((void*)headers[i]);
     }
   } else {
     dyld_all_image_infos all_image_infos = mach_target->GetAllImageInfos();
@@ -1319,8 +1317,8 @@ void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_
       void *mach_header_addr = (void*)all_image_info_array[i].imageLoadAddress;
       if (mode == 2) { /* dyld_notify_remove_all */
         OnModuleUnloaded(mach_header_addr);
-      } else if (std::find(image_info_array, image_info_array + infoCount, (uint64_t)mach_header_addr)
-                 != image_info_array + infoCount) {
+      } else if (std::find(headers, headers + infoCount, (uint64_t)mach_header_addr)
+                 != headers + infoCount) {
         /* dyld_image_adding */
         mach_target->ReadCString((uint64_t)all_image_info_array[i].imageFilePath, PATH_MAX, path);
         char *base_name = strrchr((char*)path, '/');
@@ -1331,9 +1329,34 @@ void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_
 
     delete [] all_image_info_array;
   }
+}
+
+void Debugger::OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_t machHeaders[]) {
+  uint64_t *image_info_array = new uint64_t[infoCount];
+  size_t image_info_array_size = sizeof(uint64_t) * infoCount;
+  RemoteRead(machHeaders, (void*)image_info_array, image_info_array_size);
+
+  OnImageNotifier(mode, infoCount, image_info_array);
 
   delete [] image_info_array;
 }
+
+void Debugger::OnLldbImageNotifier(size_t mode, unsigned long infoCount, size_t infos) {
+  uint64_t *header_array = new uint64_t[infoCount];
+  uint64_t *image_info_array = new uint64_t[infoCount * 3];
+
+  RemoteRead((void *)infos, (void *)image_info_array, 3 * sizeof(uint64_t) * infoCount);
+
+  for(size_t i = 0; i < infoCount; i++) {
+    header_array[i] = image_info_array[i * 3];
+  }
+
+  OnImageNotifier(mode, infoCount, header_array);
+
+  delete [] header_array;
+  delete [] image_info_array;
+}
+
 
 void Debugger::OnProcessCreated() {
   if (trace_debug_events) {
@@ -1374,8 +1397,12 @@ int Debugger::HandleDebuggerBreakpoint() {
         OnDyldImageNotifier(GetRegister(ArgumentToRegister(0)),
                             (unsigned long)GetRegister(ArgumentToRegister(1)),
                             (uint64_t*)GetRegister(ArgumentToRegister(2)));
-
         return BREAKPOINT_NOTIFICATION;
+      } else if (breakpoint->type & BREAKPOINT_LLDB_NOTIFICATION) {
+        OnLldbImageNotifier(GetRegister(ArgumentToRegister(0)),
+                            (unsigned long)GetRegister(ArgumentToRegister(1)),
+                            GetRegister(ArgumentToRegister(2)));
+        return BREAKPOINT_LLDB_NOTIFICATION;
       }
 
       breakpoints.erase(iter);
@@ -1438,12 +1465,19 @@ void Debugger::HandleExceptionInternal(MachException *raised_mach_exception) {
     if (breakpoint_type & BREAKPOINT_TARGET_END) {
       handle_exception_status = DEBUGGER_TARGET_END;
     }
+    if ((breakpoint_type & BREAKPOINT_NOTIFICATION) ||
+        (breakpoint_type & BREAKPOINT_LLDB_NOTIFICATION))
+    {
+      // simulate return
 #ifdef ARM64
-    if (breakpoint_type & BREAKPOINT_NOTIFICATION) {
-        SetRegister(ARCH_PC, GetRegister(LR));
-        return;
-    }
+      SetRegister(ARCH_PC, GetRegister(LR));
+      return;
+#else
+      size_t ret_address = GetReturnAddress();
+      SetRegister(ARCH_SP, GetRegister(ARCH_SP) + child_ptr_size);
+      SetRegister(ARCH_PC, ret_address);
 #endif
+    }
 
     if (breakpoint_type != BREAKPOINT_UNKNOWN) {
       return;

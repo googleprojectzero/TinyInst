@@ -369,7 +369,9 @@ private:
                       const char *segname,
                       TCMD **ret_command);
 
+  void OnImageNotifier(size_t mode, unsigned long infoCount, uint64_t* headers);
   void OnDyldImageNotifier(size_t mode, unsigned long infoCount, uint64_t machHeaders[]);
+  void OnLldbImageNotifier(size_t mode, unsigned long infoCount, size_t infos);
 
   void AddBreakpoint(void *address, int type);
   void DeleteBreakpoints();
@@ -434,8 +436,6 @@ private:
                                                               const char *path));
 
   void (*m_dyld_process_info_release)(void *info);
-
-  void *m_dyld_debugger_notification;
 
   void *dyld_address;
   
