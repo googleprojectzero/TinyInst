@@ -20,6 +20,13 @@ limitations under the License.
 #include <chrono>
 
 #include "common.h"
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  #include <tlhelp32.h>
+#endif
+#include <iostream>
+#include <string>
+#include <codecvt>
+#include <locale> 
 
 uint64_t GetCurTime(void) {
   auto duration =  std::chrono::system_clock::now().time_since_epoch();
@@ -96,6 +103,27 @@ int GetIntOption(const char *name, int argc, char** argv, int default_value) {
   return (int)strtol(option, NULL, 0);
 }
 
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32)
+  DWORD FindProcessId(char * process_name)
+  {
+    PROCESSENTRY32 entry;
+    entry.dwSize = sizeof(PROCESSENTRY32);
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+
+    if (Process32First(snapshot, &entry) == TRUE)
+    {
+      while (Process32Next(snapshot, &entry) == TRUE)
+      {
+        if (stricmp(entry.szExeFile, process_name) == 0)
+        {  
+          CloseHandle(snapshot);
+          return entry.th32ProcessID;
+        }
+      }
+    }
+  }
+#endif
 
 //quoting on Windows is weird
 size_t ArgvEscapeWindows(char *in, char *out) {
