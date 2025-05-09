@@ -36,7 +36,7 @@ limitations under the License.
 // cleans up all breakpoint structures
 // does not actually remove breakpoints in target process 
 void Debugger::DeleteBreakpoints() {
-  for (auto iter = breakpoints.begin(); iter != breakpoints.end(); iter++) {
+  for (auto iter = breakpoints.begin(); iter != breakpoints.end(); ++iter) {
     delete *iter;
   }
   breakpoints.clear();
