@@ -81,6 +81,7 @@ struct LoadedModule {
 bool operator< (LoadedModule const& lhs, LoadedModule const& rhs);
 
 #ifdef ARM64
+#include <asm/ptrace.h>
 typedef user_pt_regs arch_reg_struct;
 #else
 typedef user_regs_struct arch_reg_struct;
