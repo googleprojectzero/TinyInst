@@ -632,8 +632,9 @@ static Instruction DecodeBranchRegister(uint32_t opcode) {
       } else {
         return UnallocatedEncoding();
       }
+    } else {
+      insn.opcode = kBlr;
     }
-    insn.opcode = kBlr;
   } else if (opc == 0b0010) {  // RET
     if (op3) {
       if (op3 == 0b000010 && op4 == 0b11111) {
