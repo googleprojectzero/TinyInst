@@ -21,6 +21,10 @@ limitations under the License.
 #include <mach-o/dyld_images.h>
 #include <mach-o/nlist.h>
 
+#ifdef __arm64e__
+#include <ptrauth.h>
+#endif
+
 #include <third_party/llvm/libunwind/dwarf2.h>
 #include <third_party/llvm/libunwind/CompactUnwinder.hpp>
 
@@ -219,6 +223,12 @@ void UnwindGeneratorMacOS::ExtractPersonalityArray(ModuleInfo *module) {
     tinyinst_.RemoteRead((void*)((size_t)module->module_header + personality_offset),
                          &personality_address,
                          sizeof(size_t));
+
+#ifdef __arm64e__
+    // strip PAC from personality
+    personality_address = (size_t)ptrauth_strip((void *)personality_address, ptrauth_key_function_pointer);
+#endif
+
     unwind_data->personality_vector.push_back(personality_address);
 
     curr_personality_entry_addr += sizeof(uint32_t);
