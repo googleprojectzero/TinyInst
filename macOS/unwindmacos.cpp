@@ -176,9 +176,10 @@ void UnwindGeneratorMacOS::OnReturnAddress(ModuleInfo *module,
     {original_address, personality};
 }
 
-size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
+size_t UnwindGeneratorMacOS::WriteCIE(size_t addr,
                                       const char *augmentation,
-                                      size_t personality_addr) {
+                                      size_t personality_addr,
+                                      size_t *personality_remote_ptr) {
 
   ByteStream cie;
   cie.PutValue<uint32_t>(0);                  // CIE id, must be zero
@@ -194,10 +195,13 @@ size_t UnwindGeneratorMacOS::WriteCIE(ModuleInfo *module,
 
   cie.PutValueFront<uint32_t>(cie.size());    // CIE length
 
-  size_t cie_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-  tinyinst_.WriteCode(module, cie.data(), cie.size());
+  tinyinst_.RemoteWrite((void *)addr, cie.data(), cie.size());
+  
+  if(personality_remote_ptr) {
+    *personality_remote_ptr = addr + cie.size() - 8;
+  }
 
-  return cie_address;
+  return addr + cie.size();
 }
 
 void UnwindGeneratorMacOS::ExtractPersonalityArray(ModuleInfo *module) {
@@ -433,24 +437,22 @@ bool UnwindGeneratorMacOS::HandleBreakpoint(ModuleInfo* module, void *address) {
   return false;
 }
 
-size_t UnwindGeneratorMacOS::WriteFDE(ModuleInfo *module,
+size_t UnwindGeneratorMacOS::WriteFDE(size_t addr,
                                       size_t cie_address,
                                       size_t min_address,
                                       size_t max_address)
 {
-  UnwindDataMacOS *unwind_data = (UnwindDataMacOS *)module->unwind_data;
-  size_t fde_address = tinyinst_.GetCurrentInstrumentedAddress(module);
-
   ByteStream fde;
-  fde.PutValue<uint32_t>(fde_address - cie_address + 4); // CIE pointer
+  fde.PutValue<uint32_t>(addr - cie_address + 4); // CIE pointer
   fde.PutValue<uint64_t>(min_address);                   // PC start
   fde.PutValue<uint64_t>(max_address - min_address);     // PC range
   fde.PutULEB128Value(0);                                // aug length
 
   fde.PutValueFront<uint32_t>(fde.size());               // length
 
-  tinyinst_.WriteCode(module, fde.data(), fde.size());
-  return fde_address;
+  tinyinst_.RemoteWrite((void *)addr, fde.data(), fde.size());
+  
+  return addr + fde.size();
 }
 
 size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t IP) {
@@ -478,13 +480,16 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
 #endif
 
   size_t personality = WriteCustomPersonality(module);
-  size_t cie_address = WriteCIE(module, "zP", personality);
+    
+  size_t cie_address = (size_t)tinyinst_.RemoteAllocate(4096, MemoryProtection::READWRITE);
+  size_t personality_remote_ptr = 0;
+  size_t fde_address = WriteCIE(cie_address, "zP", personality, &personality_remote_ptr);
   
   std::vector<size_t> fde_addresses;
-  size_t fde_address = WriteFDE(module, cie_address,
-                                (size_t)module->instrumented_code_remote,
-                                (size_t)module->instrumented_code_remote +
-                                module->instrumented_code_size);
+  WriteFDE(fde_address, cie_address,
+           (size_t)module->instrumented_code_remote,
+           (size_t)module->instrumented_code_remote +
+           module->instrumented_code_size);
   fde_addresses.push_back(fde_address);
   
   size_t fde_array_start = tinyinst_.GetCurrentInstrumentedAddress(module);
@@ -517,6 +522,11 @@ size_t UnwindGeneratorMacOS::MaybeRedirectExecution(ModuleInfo* module, size_t I
   
   // fill out the missing pieces in the assembly snippet
 #ifdef ARM64
+  tinyinst_.WritePointerAtOffset(module,
+                                 personality_remote_ptr,
+                                 assembly_offset +
+                                 register_assembly_arm64_personality_offset);
+
   size_t register_assembly_data_offset = register_assembly_arm64_data_offset;
 #else
   size_t register_assembly_data_offset = register_assembly_x86_data_offset;

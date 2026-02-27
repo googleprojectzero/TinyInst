@@ -203,10 +203,11 @@ private:
 
   void ExtractPersonalityArray(ModuleInfo *module);
 
-  size_t WriteCIE(ModuleInfo *module,
+  size_t WriteCIE(size_t addr,
                   const char *augmentation,
-                  size_t personality_addr);
-  size_t WriteFDE(ModuleInfo *module,
+                  size_t personality_addr,
+                  size_t *personality_remote_ptr);
+  size_t WriteFDE(size_t addr,
                   size_t cie_address,
                   size_t min_address,
                   size_t max_address);
@@ -245,10 +246,18 @@ private:
       0x40, 0x00, 0x00, 0xb4, // cbz x0, skip_alignment
       0xff, 0x23, 0x00, 0xd1, // sub sp, sp, #8
     // skip_alignment:
+    // pac sign the personality
+      0xb4, 0x00, 0x00, 0x58, // ldr x20, #20;
+      0x93, 0x02, 0x40, 0xf9, // ldr x19, [x20]
+      0x93, 0x02, 0xc1, 0xda, // pacia x19, x20
+      0x93, 0x02, 0x00, 0xf9, // str x19, [x20]
+      0x03, 0x00, 0x00, 0x14, // b #12; loop
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // address of personaliy ptr goes here
+    // load array params
       0x93, 0x00, 0x00, 0x58, // ldr x19, #16; x19 becomes the current array pointer
       0xb4, 0x00, 0x00, 0x58, // ldr x20, #20; x20 becomes the end array pointer
       0xd5, 0x00, 0x00, 0x58, // ldr x21, #24; x21 becomes __register_frame address
-      0x09, 0x00, 0x00, 0x14, // b #36; loop
+      0x07, 0x00, 0x00, 0x14, // b #28; loop
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array start addr goes here
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array end addr goes here
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // __register_frame addr goes here
@@ -266,7 +275,8 @@ private:
       0xe0, 0x4f, 0x42, 0xa9, // ldp x0, x19, [sp, #32]
       0xff, 0xc3, 0x00, 0x91, // add sp, sp, #48
   };
-  static const size_t register_assembly_arm64_data_offset = 48;
+  static const size_t register_assembly_arm64_personality_offset = 52;
+  static const size_t register_assembly_arm64_data_offset = 76;
 #else
   static constexpr unsigned char register_assembly_x86[] = {
     // save registers

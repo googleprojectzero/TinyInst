@@ -220,7 +220,6 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
     case X26:
     case X27:
     case X28:
-    case X29:
       return &state->__x[r];
 #ifndef __arm64e__
     case PC:
@@ -229,6 +228,8 @@ uint64_t* Debugger::GetPointerToRegister(Register r) {
       return &state->__lr;
     case SP:
       return &state->__sp;
+    case FP:
+      return &state->__fp;
 #endif
     case CPSR:
       return (uint64_t*)&state->__cpsr;
@@ -288,6 +289,8 @@ size_t Debugger::GetRegister(Register r) {
       return (size_t)ptrauth_strip(state->__opaque_lr, ptrauth_key_function_pointer);
     case SP:
       return (size_t)ptrauth_strip((void *)state->__opaque_sp, ptrauth_key_process_independent_data);
+    case FP:
+      return (size_t)ptrauth_strip((void *)state->__opaque_fp, ptrauth_key_process_independent_data);
     default:
       break;
   }
@@ -319,6 +322,9 @@ void Debugger::SetRegister(Register r, size_t value) {
       return;
     case SP:
       arm_thread_state64_set_sp(*state, (void *)value);
+      return;
+    case FP:
+      arm_thread_state64_set_fp(*state, (void *)value);
       return;
   default:
     break;
@@ -1591,9 +1597,19 @@ void Debugger::SaveRegisters(SavedRegisters *registers) {
   
   registers->gpr_count = *(mach_exception->new_state_cnt);
   
+#ifdef __arm64e__
+  ARCH_THREAD_STATE_T *at_state = (ARCH_THREAD_STATE_T*)(mach_exception->new_state);
+  memcpy(registers->gpr_registers.__x, at_state->__x, sizeof(registers->gpr_registers.__x));
+  registers->gpr_registers.__opaque_fp = (void *)GetRegister(FP);
+  registers->gpr_registers.__opaque_lr = (void *)GetRegister(LR);
+  registers->gpr_registers.__opaque_sp = (void *)GetRegister(SP);
+  registers->gpr_registers.__opaque_pc = (void *)GetRegister(PC);
+  registers->gpr_registers.__cpsr = (uint32_t)GetRegister(CPSR);
+#else
   memcpy(&registers->gpr_registers,
          mach_exception->new_state,
          registers->gpr_count * sizeof(natural_t));
+#endif
 
   registers->fpu_count = sizeof(ARCH_FPU_STATE_T) / sizeof(natural_t);
   kern_return_t ret = thread_get_state(mach_exception->thread_port,
@@ -1611,10 +1627,20 @@ void Debugger::RestoreRegisters(SavedRegisters *registers) {
     FATAL("Unexpected thread state size");
   }
 
+#ifdef __arm64e__
+  ARCH_THREAD_STATE_T *at_state = (ARCH_THREAD_STATE_T*)(mach_exception->new_state);
+  memcpy(at_state->__x, registers->gpr_registers.__x, sizeof(registers->gpr_registers.__x));
+  SetRegister(FP, (size_t)registers->gpr_registers.__opaque_fp);
+  SetRegister(LR, (size_t)registers->gpr_registers.__opaque_lr);
+  SetRegister(SP, (size_t)registers->gpr_registers.__opaque_sp);
+  SetRegister(PC, (size_t)registers->gpr_registers.__opaque_pc);
+  SetRegister(CPSR, (size_t)registers->gpr_registers.__cpsr);
+#else
   memcpy(mach_exception->new_state,
          &registers->gpr_registers,
          registers->gpr_count * sizeof(natural_t));
-  
+#endif
+
   kern_return_t ret = thread_set_state(mach_exception->thread_port,
                                        ARCH_FPU_STATE,
                                        (thread_state_t)&registers->fpu_registers,
