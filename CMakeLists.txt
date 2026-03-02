@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION "3.5")
+cmake_minimum_required(VERSION "3.10")
 set (CMAKE_CXX_STANDARD 17)
 
 # Determine whether TinyInst should be build for arm64 or x86
