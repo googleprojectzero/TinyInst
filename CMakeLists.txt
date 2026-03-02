@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION "3.1")
+cmake_minimum_required(VERSION "3.5")
 set (CMAKE_CXX_STANDARD 17)
 
 # Determine whether TinyInst should be build for arm64 or x86
@@ -168,3 +168,14 @@ add_executable(litecov
 )
 
 target_link_libraries(litecov tinyinst)
+
+if(APPLE)
+  set_target_properties(litecov PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/tinyinst.entitlements"
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-"
+  )
+  set_target_properties(sslhook PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/tinyinst.entitlements"
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-"
+  )
+endif()

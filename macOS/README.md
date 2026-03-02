@@ -28,6 +28,10 @@ aligns to 16k to ensure that not only parts of a module is instrumented. This
 behavior is controlled by the `-page_extend_modules` flag which is set to
 `true` by default on M1. In some cases it might be possible to turn off this flag resulting in better performance.
 
+## Running against arm64e binaries
+
+See [here](https://github.com/googleprojectzero/TinyInst/blob/master/macOS/README.md)
+
 ## TinyInst and Guard Malloc
 
 On macOS, [Guard Malloc](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/ManagingMemory/Articles/MallocDebug.html) is a special version of the malloc library that makes it easier to catch certain types of memory safety issues. To enable Guard Malloc for a target process running under TinyInst, use the following flag:
