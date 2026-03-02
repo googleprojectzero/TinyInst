@@ -30,7 +30,7 @@ behavior is controlled by the `-page_extend_modules` flag which is set to
 
 ## Running against arm64e binaries
 
-See [here](https://github.com/googleprojectzero/TinyInst/blob/master/macOS/README.md)
+See [here](https://github.com/googleprojectzero/TinyInst/blob/master/macOS/arm64e.md)
 
 ## TinyInst and Guard Malloc
 
@@ -51,3 +51,4 @@ An issue was observed with some targets, where the combination of TinyInst and G
 The first part ensures that the instrumented module will be loaded before libgmalloc (the order of libraries in `DYLD_INSERT_LIBRARIES` is important). The `-instrument_modules_on_load` flag ensures that modules will be instrumented as soon as they are loaded (and not when the process entypoint or the target method is reached, as is normally the case in TinyInst.
 
 Additionally, especially if you enconter errors related to stack unwinding, the `-patch_return_addresses` flag might be needed.
+
