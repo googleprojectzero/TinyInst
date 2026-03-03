@@ -16,7 +16,7 @@ and restarting the system.
 
 ```
 mkdir buildarm64e
-cd arm64e
+cd buildarm64e
 cmake -G Xcode -DCMAKE_OSX_ARCHITECTURES=arm64e ..
 cmake --build . --config Release
 ```
