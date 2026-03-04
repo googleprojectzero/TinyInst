@@ -46,7 +46,7 @@ else()
 endif()
 
 set (BUILD_XED_COMMAND
-     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xed/mfile.py ${XED_HOST_CPU} ${XED_ADDITONAL_FLAGS}
+     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xed/mfile.py ${XED_HOST_CPU}
 )
 
 if (WIN32)
