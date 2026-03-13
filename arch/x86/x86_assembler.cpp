@@ -779,7 +779,7 @@ void X86Assembler::HandleBasicBlockEnd(
       FATAL("Error getting branch target");
     }
 
-    int32_t disp = xed_decoded_inst_get_branch_displacement(&inst.xedd);
+    int32_t disp = (int32_t)xed_decoded_inst_get_branch_displacement(&inst.xedd);
     uint32_t disp_width =
         xed_decoded_inst_get_branch_displacement_width(&inst.xedd);
     if (disp_width == 0) {
@@ -872,7 +872,7 @@ void X86Assembler::HandleBasicBlockEnd(
       // gets instrumented as:
       // jmp fixed_address
 
-      int32_t disp = xed_decoded_inst_get_branch_displacement(&inst.xedd);
+      int32_t disp = (int32_t)xed_decoded_inst_get_branch_displacement(&inst.xedd);
       uint32_t disp_width =
           xed_decoded_inst_get_branch_displacement_width(&inst.xedd);
       if (disp_width == 0) {
@@ -929,7 +929,7 @@ void X86Assembler::HandleBasicBlockEnd(
       // label:
       //   jmp target_address
 
-      int32_t disp = xed_decoded_inst_get_branch_displacement(&inst.xedd);
+      int32_t disp = (int32_t)xed_decoded_inst_get_branch_displacement(&inst.xedd);
       uint32_t disp_width =
           xed_decoded_inst_get_branch_displacement_width(&inst.xedd);
       if (disp_width == 0) {
