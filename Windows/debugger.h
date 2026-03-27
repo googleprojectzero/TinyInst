@@ -90,7 +90,7 @@ public:
   Exception GetLastException() {
     return last_exception;
   }
-
+  
 protected:
 
   virtual void OnModuleLoaded(void *module, char *module_name);
