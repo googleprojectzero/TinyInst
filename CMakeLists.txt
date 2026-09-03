@@ -28,9 +28,9 @@ elseif(NOT DEFINED ${ARCHITECTURE})
   endif()
 endif()
 
-add_subdirectory(third_party)
-
 project("tinyinst")
+
+add_subdirectory(third_party)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/third_party/obj/wkit/include)
 

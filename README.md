@@ -87,6 +87,14 @@ cmake -DCMAKE_TOOLCHAIN_FILE=</path/to/android/ndk>build/cmake/android.toolchain
 cmake --build . --config Release
 ```
 
+#### Cross-compiling for Linux
+```
+mkdir build
+cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=../Linux/arm64.toochain.cmake ..
+cmake --build . --config Release
+```
+
 Note #1: 64-bit build will also run against 32-bit targets on Windows and Linux operating systems
 
 Note #2: Encountering problems creating a 32-bit build on 64-bit Windows due to the environment not being properly set up and libraries missing? Open the generated .sln file in Visual Studio and build from there instead of running cmake --build. Also note that 64-bit build is going to work on 32-bit targets, so creating a 32-bit build might not be necessary.
