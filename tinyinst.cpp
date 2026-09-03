@@ -55,7 +55,7 @@ ModuleInfo::ModuleInfo() {
 void ModuleInfo::ClearInstrumentation() {
   instrumented = false;
 
-  for (auto iter = executable_ranges.begin(); iter != executable_ranges.end(); iter++) {
+  for (auto iter = executable_ranges.begin(); iter != executable_ranges.end(); ++iter) {
     if (iter->data) free(iter->data);
   }
   executable_ranges.clear();
